@@ -15,6 +15,7 @@ enum SupportRequestStatus: Equatable {
 
 struct SupportRequest: Identifiable {
     let id = UUID()
+    let clientLogin: String
     let message: String
     let date: Date
     var status: SupportRequestStatus = .pending
@@ -28,6 +29,11 @@ final class SupportRequestStore: ObservableObject {
     private init() {}
 
     func addRequest(message: String) {
-        requests.append(SupportRequest(message: message, date: Date()))
+        requests.append(SupportRequest(clientLogin: CurrentSession.shared.clientLogin, message: message, date: Date()))
+    }
+
+    func markAccepted(_ request: SupportRequest) {
+        guard let index = requests.firstIndex(where: { $0.id == request.id }) else { return }
+        requests[index].status = .accepted
     }
 }

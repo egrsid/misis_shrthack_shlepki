@@ -52,6 +52,7 @@ struct ClientRegisterView: View {
         }
         errorMessage = nil
         passwordContentType = .newPassword
+        CurrentSession.shared.clientLogin = login
         isRegistered = true
     }
 }

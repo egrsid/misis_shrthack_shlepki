@@ -51,6 +51,7 @@ struct ProductsView: View {
             }
             .padding(.trailing, 20)
             .padding(.bottom, 24)
+            .accessibilityLabel("Поддержка")
 
             if isMenuOpen {
                 SideMenuView(isPresented: $isMenuOpen) { section in
@@ -92,6 +93,7 @@ struct ProductsView: View {
                     .background(Color.white.opacity(0.15))
                     .clipShape(Circle())
             }
+            .accessibilityLabel("Каталог")
         }
         .padding(.top, 16)
     }

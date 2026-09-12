@@ -62,6 +62,31 @@ final class SberUITests: XCTestCase {
     }
 
     @MainActor
+    func testOperatorLoginReachesEmptyRequestsList() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        app.buttons["Оператор"].tap()
+
+        let loginField = app.textFields["Логин"]
+        XCTAssertTrue(loginField.waitForExistence(timeout: 5))
+        loginField.tap()
+        loginField.typeText("operator")
+
+        let passwordField = app.secureTextFields["Пароль"]
+        passwordField.tap()
+        passwordField.typeText("12345")
+
+        app.buttons["Войти"].tap()
+
+        let requestsTitle = app.staticTexts["Заявки"]
+        XCTAssertTrue(requestsTitle.waitForExistence(timeout: 5))
+
+        let emptyState = app.staticTexts["Заявок пока нет"]
+        XCTAssertTrue(emptyState.waitForExistence(timeout: 5))
+    }
+
+    @MainActor
     func testLaunchPerformance() throws {
         // This measures how long it takes to launch your application.
         measure(metrics: [XCTApplicationLaunchMetric()]) {

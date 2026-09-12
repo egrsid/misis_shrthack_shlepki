@@ -94,6 +94,7 @@ struct SupportChatView: View {
                     .foregroundColor(.white)
             }
             .disabled(isResolved || draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            .accessibilityLabel("Отправить")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)

@@ -70,6 +70,7 @@ struct ClientLoginView: View {
         }
         errorMessage = nil
         passwordContentType = .password
+        CurrentSession.shared.clientLogin = login
         route = .home
     }
 
