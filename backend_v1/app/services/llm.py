@@ -3,7 +3,7 @@ from openai import OpenAI
 from app.core.config import settings
 from app.schemas.issue import ExtractedIssue, IssueAnalysis, IssueSlots
 
-from .fake_llm import fake_analyze, fake_reply
+from .fake_llm import fake_analyze, fake_extract_slots, fake_reply
 
 
 ANALYZE_INSTRUCTIONS = """You are an AI triage assistant for an electronics store support team.
@@ -68,6 +68,36 @@ def analyze_text(text: str) -> list[ExtractedIssue]:
     return response.output_parsed.issues
 
 
+EXTRACT_INSTRUCTIONS = """You extract specific field values from a customer's follow-up
+message in a support chat. The support team asked for a list of fields; the customer has
+just answered.
+
+Fill a field only if its value is stated in this answer. If the customer did not give a
+value, or wrote something like "не знаю" or "не помню", set that field to null. Never
+guess and never invent a plausible number — a wrong serial number is worse than none.
+Copy values exactly as the customer wrote them."""
+
+
+def extract_slots(text: str, needed_fields: list[str]) -> IssueSlots:
+    """Pull the requested fields out of the customer's answer.
+
+    One call covers every field the whole request is waiting for; the caller then
+    hands each value to the issues that asked for it.
+    """
+    if settings.use_fake_llm:
+        return fake_extract_slots(text, needed_fields)
+
+    response = client().responses.parse(
+        model=model_name(),
+        instructions=EXTRACT_INSTRUCTIONS,
+        input=f"Fields the team asked for: {', '.join(needed_fields)}\nCustomer answer: {text}",
+        text_format=IssueSlots,
+    )
+    if response.output_parsed is None:
+        raise RuntimeError("The LLM did not return structured slot data.")
+    return response.output_parsed
+
+
 def draft_reply(
     title: str,
     description: str,
@@ -102,4 +132,4 @@ def draft_reply(
     return response.output_text.strip()
 
 
-__all__ = ["analyze_text", "draft_reply", "IssueSlots"]
+__all__ = ["analyze_text", "extract_slots", "draft_reply", "IssueSlots"]

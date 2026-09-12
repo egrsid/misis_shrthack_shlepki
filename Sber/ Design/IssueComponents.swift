@@ -19,9 +19,25 @@ extension IssuePriority {
     }
 }
 
+extension Issue {
+    /// Colour for the status wording the client sees.
+    var clientStatusColor: Color {
+        switch status {
+        case .collecting: return .priorityHigh
+        case .new, .awaitingInfo, .inProgress: return .priorityMedium
+        case .resolved: return Color(red: 30 / 255, green: 140 / 255, blue: 95 / 255)
+        case .closed:
+            return finalReply == nil
+                ? .priorityLow
+                : Color(red: 30 / 255, green: 140 / 255, blue: 95 / 255)
+        }
+    }
+}
+
 extension IssueStatus {
     var color: Color {
         switch self {
+        case .collecting: return .priorityHigh
         case .new: return .priorityMedium
         case .awaitingInfo: return .priorityHigh
         case .inProgress: return .pantone349

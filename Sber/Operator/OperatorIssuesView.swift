@@ -86,7 +86,9 @@ struct OperatorIssuesView: View {
                     FilterChip(title: "Сбросить", isSelected: false) { store.clearFilters() }
                 }
 
-                ForEach(IssueStatus.allCases) { status in
+                // collecting is excluded: those issues are still in the client's
+                // chat and never appear in this feed.
+                ForEach(IssueStatus.operatorCases) { status in
                     FilterChip(
                         title: status.title,
                         isSelected: store.statusFilter == status

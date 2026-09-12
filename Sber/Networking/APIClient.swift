@@ -67,6 +67,18 @@ struct APIClient {
         )
     }
 
+    /// Sends the customer's answer to the fields a request is still waiting for.
+    func clarify(requestId: String, text: String) async throws -> AnalyzeResponse {
+        if API.useMock {
+            return try await MockBackend.shared.clarify(requestId: requestId, text: text)
+        }
+        return try await send(
+            path: "/requests/\(requestId)/clarify",
+            method: "POST",
+            body: ClarifyRequest(text: text)
+        )
+    }
+
     func allIssues() async throws -> [Issue] {
         if API.useMock {
             return await MockBackend.shared.allIssues()

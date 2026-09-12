@@ -14,10 +14,27 @@ struct ProductsView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    Text("Товары")
-                        .font(.system(size: 28, weight: .bold))
-                        .foregroundColor(.white)
-                        .padding(.top, 16)
+                    HStack(alignment: .center) {
+                        Text("Товары")
+                            .font(.system(size: 28, weight: .bold))
+                            .foregroundColor(.white)
+
+                        Spacer()
+
+                        // Catalogue, search, orders and support requests.
+                        NavigationLink {
+                            ClientMenuView()
+                        } label: {
+                            Image(systemName: "square.grid.2x2")
+                                .font(.system(size: 17, weight: .semibold))
+                                .foregroundColor(.pantone349)
+                                .frame(width: 40, height: 40)
+                                .background(Color.white)
+                                .clipShape(Circle())
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.top, 16)
 
                     LazyVGrid(columns: columns, spacing: 15) {
                         ForEach(mockProducts) { product in

@@ -39,7 +39,10 @@ actor MockBackend {
 
     // MARK: Reads
 
-    func allIssues() -> [Issue] { issues }
+    /// The operator's feed: issues still being clarified in the chat are excluded.
+    func allIssues() -> [Issue] {
+        issues.filter { !$0.isCollecting }
+    }
 
     func issues(forUser userId: Int) -> [Issue] {
         issues.filter { $0.userId == userId }
@@ -63,7 +66,7 @@ actor MockBackend {
                 description: draft.description,
                 category: draft.category,
                 priority: draft.priority,
-                status: missing.isEmpty ? .new : .awaitingInfo,
+                status: missing.isEmpty ? .new : .collecting,
                 slots: Self.visibleSlots(category: draft.category, slots: draft.slots),
                 missing: missing.map(\.rawValue),
                 generatedReply: nil,
@@ -82,8 +85,94 @@ actor MockBackend {
         return AnalyzeResponse(
             requestId: requestId,
             issues: created,
-            clarification: Self.clarification(for: created)
+            clarification: Self.clarification(for: created),
+            submitted: created.filter { !$0.isCollecting }.map(\.id)
         )
+    }
+
+    /// Applies the customer's answer to whatever the request is still waiting for.
+    func clarify(requestId: String, text: String) throws -> AnalyzeResponse {
+        let indices = issues.indices.filter { issues[$0].requestId == requestId }
+        guard !indices.isEmpty else {
+            throw APIError.server(status: 404, detail: "Обращение не найдено")
+        }
+        let pending = indices.filter { issues[$0].isCollecting }
+        guard !pending.isEmpty else {
+            throw APIError.server(status: 409, detail: "Обращение уже передано оператору")
+        }
+
+        let needed = Set(pending.flatMap { issues[$0].missingFields })
+        let provided = Self.extractSlots(from: text, needed: needed)
+
+        var submitted: [Int] = []
+        for index in pending {
+            var issue = issues[index]
+            var slots = issue.slots
+            // Only the fields this issue asked for.
+            for field in issue.missingFields {
+                if let value = provided[field] { slots[field.rawValue] = value }
+            }
+            let typed = slots.reduce(into: [SlotField: String?]()) { result, entry in
+                if let field = SlotField(rawValue: entry.key) { result[field] = entry.value }
+            }
+            let missing = Self.missingFields(category: issue.category, slots: typed)
+            issue.slots = Self.visibleSlots(category: issue.category, slots: typed)
+            issue.missing = missing.map(\.rawValue)
+            issue.status = missing.isEmpty ? .new : .collecting
+            issue.originalText += "\n\nУточнение клиента: \(text)"
+            issues[index] = issue
+            if missing.isEmpty { submitted.append(issue.id) }
+        }
+
+        let all = indices.map { issues[$0] }
+        return AnalyzeResponse(
+            requestId: requestId,
+            issues: all,
+            clarification: Self.clarification(for: all.filter(\.isCollecting)),
+            submitted: submitted
+        )
+    }
+
+    /// Offline counterpart of the backend's follow-up extraction.
+    private static func extractSlots(
+        from text: String,
+        needed: Set<SlotField>
+    ) -> [SlotField: String] {
+        var found: [SlotField: String] = [:]
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if needed.contains(.serialNumber) {
+            // A serial is the token mixing letters and digits, taken whole.
+            let tokens = trimmed.split(whereSeparator: { !$0.isLetter && !$0.isNumber && $0 != "-" })
+            if let token = tokens.first(where: { token in
+                token.count >= 4 && token.contains(where: \.isLetter)
+                    && token.contains(where: \.isNumber)
+            }) {
+                found[.serialNumber] = String(token)
+            }
+        }
+        if needed.contains(.orderId), let orderId = orderId(in: trimmed) ?? bareNumber(in: trimmed) {
+            found[.orderId] = orderId
+        }
+        if needed.contains(.purchaseDate), let range = trimmed.range(
+            of: #"\d{1,2}[.\-/]\d{1,2}[.\-/]\d{2,4}"#,
+            options: .regularExpression
+        ) {
+            found[.purchaseDate] = String(trimmed[range])
+        }
+        if needed.contains(.model), let model = device(in: trimmed.lowercased()) {
+            found[.model] = model
+        }
+        for field in [SlotField.reason, .issue] where needed.contains(field) {
+            if (3...200).contains(trimmed.count) { found[field] = trimmed }
+        }
+        return found
+    }
+
+    private static func bareNumber(in text: String) -> String? {
+        let digits = text.filter(\.isNumber)
+        let isOnlyNumber = text.allSatisfy { $0.isNumber || $0.isWhitespace }
+        return isOnlyNumber && digits.count >= 3 ? digits : nil
     }
 
     // MARK: Writes
@@ -113,9 +202,11 @@ actor MockBackend {
             let missing = Self.missingFields(category: issue.category, slots: slots)
             issue.missing = missing.map(\.rawValue)
             issue.slots = Self.visibleSlots(category: issue.category, slots: slots)
-            let operatorOwned: Set<IssueStatus> = [.inProgress, .resolved, .closed]
-            if patch.status == nil, !operatorOwned.contains(issue.status) {
-                issue.status = missing.isEmpty ? .new : .awaitingInfo
+            // Same rule as the backend: only an issue that is still being collected
+            // can change side. Once submitted, a new gap is shown to the operator
+            // but never hides the issue from the feed again.
+            if patch.status == nil, issue.status == .collecting {
+                issue.status = missing.isEmpty ? .new : .collecting
             }
         }
 

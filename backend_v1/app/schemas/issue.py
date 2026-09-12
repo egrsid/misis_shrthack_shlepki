@@ -18,7 +18,11 @@ Category = Literal[
     "other",
 ]
 Priority = Literal["critical", "high", "medium", "low"]
-Status = Literal["new", "awaiting_info", "in_progress", "resolved", "closed"]
+# collecting: the issue is still being clarified in the client's chat and is
+# deliberately invisible to the operator. Everything else has been submitted.
+Status = Literal[
+    "collecting", "new", "awaiting_info", "in_progress", "resolved", "closed"
+]
 
 
 class AnalyzeRequest(BaseModel):
@@ -66,6 +70,12 @@ class IssueUpdate(BaseModel):
     slots: dict[str, str | None] | None = None
 
 
+class ClarifyRequest(BaseModel):
+    """The customer's answer to a clarifying question."""
+
+    text: str = Field(min_length=1, max_length=5000)
+
+
 class ReplyCreate(BaseModel):
     text: str = Field(min_length=1, max_length=5000)
 
@@ -95,12 +105,15 @@ class IssueOut(BaseModel):
 
 
 class AnalyzeResponse(BaseModel):
-    """Everything Swift needs after one customer message."""
+    """Everything Swift needs after one customer message or one clarification."""
 
     request_id: str
     issues: list[IssueOut]
     # One message asking about every gap at once; None when nothing is missing.
     clarification: str | None = None
+    # Ids handed to the operator by this call. Issues still missing data are not
+    # here: they stay in the chat until the customer fills the gaps.
+    submitted: list[int] = []
 
 
 class GenerateReplyResponse(BaseModel):

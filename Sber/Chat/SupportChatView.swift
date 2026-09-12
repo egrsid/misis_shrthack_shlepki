@@ -1,5 +1,10 @@
 import SwiftUI
 
+/// The client's chat.
+///
+/// A request only reaches the operator once it is complete: the first message is
+/// analysed, and while any issue in it is still missing required fields the chat
+/// keeps asking and sends the answers to /requests/{id}/clarify.
 struct SupportChatView: View {
     @Environment(\.dismiss) private var dismiss
 
@@ -14,6 +19,12 @@ struct SupportChatView: View {
     @State private var errorMessage: String?
     /// Kept so the retry button can resend the exact text that failed.
     @State private var lastFailedText: String?
+
+    /// Set while the current request still has issues waiting for data.
+    @State private var pendingRequestId: String?
+    @State private var pendingIssues: [Issue] = []
+    /// Counts answers that produced nothing, to offer a way out of a loop.
+    @State private var fruitlessAnswers = 0
 
     private var userId: Int { MockAuthStore.shared.currentClientId }
 
@@ -33,9 +44,7 @@ struct SupportChatView: View {
                                     .id(message.id)
                             }
 
-                            if isSending {
-                                TypingIndicator()
-                            }
+                            if isSending { TypingIndicator() }
 
                             if let errorMessage {
                                 ErrorStrip(
@@ -43,6 +52,12 @@ struct SupportChatView: View {
                                     onRetry: lastFailedText == nil ? nil : { retry() },
                                     onUseMock: { enableMockAndRetry() }
                                 )
+                            }
+
+                            // Escape hatch: a client who cannot find the serial
+                            // number must not be stuck in the chat forever.
+                            if fruitlessAnswers >= 2, !pendingIssues.isEmpty, !isSending {
+                                sendAnywayButton
                             }
                         }
                         .padding(16)
@@ -73,9 +88,16 @@ struct SupportChatView: View {
 
             Spacer()
 
-            Text("Чат с поддержкой")
-                .font(.system(size: 18, weight: .bold))
-                .foregroundColor(.white)
+            VStack(spacing: 2) {
+                Text("Чат с поддержкой")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(.white)
+                if !pendingIssues.isEmpty {
+                    Text("Ждём данные для оформления")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.white.opacity(0.85))
+                }
+            }
 
             Spacer()
 
@@ -88,7 +110,7 @@ struct SupportChatView: View {
 
     private var inputBar: some View {
         HStack(spacing: 12) {
-            TextField("Опишите проблему", text: $draft, axis: .vertical)
+            TextField(inputPlaceholder, text: $draft, axis: .vertical)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
                 .background(Color.white)
@@ -109,6 +131,30 @@ struct SupportChatView: View {
         .padding(.vertical, 12)
     }
 
+    private var inputPlaceholder: String {
+        pendingIssues.isEmpty ? "Опишите проблему" : "Ответьте на вопрос выше"
+    }
+
+    private var sendAnywayButton: some View {
+        Button {
+            Task { await submitAnyway() }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "paperplane")
+                Text("Не могу найти эти данные — передать оператору как есть")
+                    .multilineTextAlignment(.leading)
+            }
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundColor(.pantone349)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.white)
+            .cornerRadius(14)
+        }
+        .buttonStyle(.plain)
+    }
+
     private var canSend: Bool {
         !isSending && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
@@ -121,12 +167,12 @@ struct SupportChatView: View {
 
         messages.append(ChatMessage(sender: .user, text: text))
         draft = ""
-        analyze(text)
+        submit(text)
     }
 
     private func retry() {
         guard let text = lastFailedText else { return }
-        analyze(text)
+        submit(text)
     }
 
     private func enableMockAndRetry() {
@@ -138,25 +184,23 @@ struct SupportChatView: View {
         }
     }
 
-    /// One round trip: the backend splits the message, triages every issue and
-    /// returns the single clarification covering all the gaps at once.
-    private func analyze(_ text: String) {
+    /// Routes the message: a new request goes to /analyze, an answer to a pending
+    /// one goes to /clarify.
+    private func submit(_ text: String) {
         isSending = true
         errorMessage = nil
 
         Task {
             do {
-                let response = try await APIClient.shared.analyze(userId: userId, text: text)
-                lastFailedText = nil
-                SupportRequestStore.shared.record(message: text, issues: response.issues)
-
-                messages.append(ChatMessage(sender: .assistant, text: acknowledgement(for: response)))
-
-                // The clarifying question is the one thing sent to the customer
-                // automatically: it promises nothing, so it needs no approval.
-                if let clarification = response.clarification {
-                    messages.append(ChatMessage(sender: .assistant, text: clarification))
+                let response: AnalyzeResponse
+                if let requestId = pendingRequestId {
+                    response = try await APIClient.shared.clarify(requestId: requestId, text: text)
+                } else {
+                    response = try await APIClient.shared.analyze(userId: userId, text: text)
+                    SupportRequestStore.shared.record(message: text, issues: response.issues)
                 }
+                lastFailedText = nil
+                apply(response)
             } catch {
                 lastFailedText = text
                 errorMessage = error.localizedDescription
@@ -165,21 +209,84 @@ struct SupportChatView: View {
         }
     }
 
-    private func acknowledgement(for response: AnalyzeResponse) -> String {
-        let count = response.issues.count
-        let titles = response.issues.map { "• \($0.title)" }.joined(separator: "\n")
+    private func apply(_ response: AnalyzeResponse) {
+        let wasWaiting = !pendingIssues.isEmpty
+        let stillPending = response.pendingIssues
 
-        if count == 1 {
-            return "Принял обращение и передал оператору:\n\(titles)"
+        // Tell the client what actually went to an operator.
+        if !response.submittedIssues.isEmpty {
+            messages.append(ChatMessage(
+                sender: .assistant,
+                text: submittedText(for: response.submittedIssues)
+            ))
         }
-        return "В вашем сообщении я нашёл \(count) \(issueWord(count)) и оформил каждое отдельно:\n\(titles)"
+
+        // And ask, in one message, for everything that is still missing.
+        if let clarification = response.clarification {
+            messages.append(ChatMessage(sender: .assistant, text: clarification))
+        }
+
+        // An answer that moved nothing forward: count it, so the way out appears.
+        if response.submittedIssues.isEmpty {
+            if wasWaiting { fruitlessAnswers += 1 }
+        } else {
+            fruitlessAnswers = 0
+        }
+
+        pendingIssues = stillPending
+        pendingRequestId = stillPending.isEmpty ? nil : response.requestId
+
+        if stillPending.isEmpty, response.submittedIssues.isEmpty {
+            messages.append(ChatMessage(
+                sender: .assistant,
+                text: "Спасибо! Обращение передано оператору."
+            ))
+        }
+    }
+
+    private func submittedText(for issues: [Issue]) -> String {
+        let titles = issues.map { "• \($0.title)" }.joined(separator: "\n")
+        let tail = "\n\nОтвет придёт в раздел «Запросы в поддержку»."
+        if issues.count == 1 {
+            return "Готово, передал оператору:\n\(titles)" + tail
+        }
+        return "Готово, передал оператору \(issues.count) \(issueWord(issues.count)):\n\(titles)" + tail
+    }
+
+    /// Submits the pending issues without the data the client cannot provide.
+    private func submitAnyway() async {
+        isSending = true
+        errorMessage = nil
+        var sent: [Issue] = []
+
+        for issue in pendingIssues {
+            do {
+                let updated = try await APIClient.shared.update(
+                    issueId: issue.id,
+                    patch: IssuePatch(status: .new)
+                )
+                sent.append(updated)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+        isSending = false
+
+        guard !sent.isEmpty else { return }
+        pendingIssues = []
+        pendingRequestId = nil
+        fruitlessAnswers = 0
+        messages.append(ChatMessage(
+            sender: .assistant,
+            text: "Передал оператору без этих данных — он свяжется с вами, если они понадобятся."
+        ))
     }
 
     private func issueWord(_ count: Int) -> String {
         switch count % 10 {
-        case 1 where count % 100 != 11: return "обращение"
-        case 2, 3, 4 where !(11...14).contains(count % 100): return "обращения"
-        default: return "обращений"
+        case 1 where count % 100 != 11: return "заявку"
+        case 2, 3, 4 where !(11...14).contains(count % 100): return "заявки"
+        default: return "заявок"
         }
     }
 }

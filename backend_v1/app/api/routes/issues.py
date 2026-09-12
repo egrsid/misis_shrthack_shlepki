@@ -16,9 +16,11 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.core.triage import (
+    COLLECTING,
     clarification_text,
     clean_slots,
     missing_fields,
+    status_after_edit,
     status_for,
     visible_slots,
 )
@@ -26,18 +28,16 @@ from app.models import Issue
 from app.schemas import (
     AnalyzeRequest,
     AnalyzeResponse,
+    ClarifyRequest,
     GenerateReplyResponse,
     IssueOut,
     IssueUpdate,
     ReplyCreate,
     ReplyResponse,
 )
-from app.services.llm import analyze_text, draft_reply
+from app.services.llm import analyze_text, draft_reply, extract_slots
 
 router = APIRouter(tags=["issues"])
-
-# Statuses the operator owns; recomputing missing fields must not overwrite them.
-_OPERATOR_STATUSES = {"in_progress", "resolved", "closed"}
 
 
 def get_issue_or_404(db: Session, issue_id: int) -> Issue:
@@ -202,13 +202,88 @@ def analyze_request(payload: AnalyzeRequest, db: Session = Depends(get_db)):
         request_id=request_id,
         issues=serialize(db, issues),
         clarification=clarification_text(gaps),
+        # Only complete issues reach the operator; the rest wait in the chat.
+        submitted=[issue.id for issue in issues if issue.status != COLLECTING],
+    )
+
+
+@router.post("/requests/{request_id}/clarify", response_model=AnalyzeResponse)
+def clarify_request(
+    request_id: str,
+    payload: ClarifyRequest,
+    db: Session = Depends(get_db),
+):
+    """Apply the customer's answer to the issues still waiting for data.
+
+    The LLM only pulls values out of the answer; whether that is now enough to
+    hand an issue to the operator is decided by the rules.
+    """
+    issues = db.scalars(
+        select(Issue).where(Issue.request_id == request_id).order_by(Issue.id)
+    ).all()
+    if not issues:
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    pending = [issue for issue in issues if issue.status == COLLECTING]
+    if not pending:
+        raise HTTPException(
+            status_code=409,
+            detail="This request has already been handed to an operator.",
+        )
+
+    needed = sorted({field for issue in pending for field in load_missing(issue)})
+    try:
+        extracted = extract_slots(payload.text, needed)
+    except Exception as error:
+        raise llm_error(error) from error
+
+    provided = {
+        key: value
+        for key, value in clean_slots(extracted.model_dump()).items()
+        if value is not None and key in set(needed)
+    }
+
+    submitted: list[int] = []
+    gaps: list[tuple[str, list[str]]] = []
+    for issue in pending:
+        slots = load_slots(issue)
+        # Only fields this issue actually asked for; an answer about the warranty
+        # must not silently fill a different issue's order number.
+        for field in load_missing(issue):
+            if field in provided:
+                slots[field] = provided[field]
+        missing = apply_triage(issue, slots)
+        issue.status = status_for(missing)
+        # Keep the answer with the issue so the operator reads the full exchange.
+        issue.original_text = f"{issue.original_text}\n\nУточнение клиента: {payload.text.strip()}"
+        if missing:
+            gaps.append((issue.category, missing))
+        else:
+            submitted.append(issue.id)
+
+    db.commit()
+    for issue in issues:
+        db.refresh(issue)
+
+    return AnalyzeResponse(
+        request_id=request_id,
+        issues=serialize(db, issues),
+        clarification=clarification_text(gaps),
+        submitted=submitted,
     )
 
 
 @router.get("/issues", response_model=list[IssueOut])
-def list_issues(db: Session = Depends(get_db)):
-    issues = db.scalars(select(Issue).order_by(Issue.created_at.desc(), Issue.id.desc())).all()
-    return serialize(db, issues)
+def list_issues(include_collecting: bool = False, db: Session = Depends(get_db)):
+    """The operator's feed.
+
+    Issues still being clarified in the chat are excluded: an incomplete request
+    is not the operator's work yet. include_collecting=true is for debugging.
+    """
+    query = select(Issue).order_by(Issue.created_at.desc(), Issue.id.desc())
+    if not include_collecting:
+        query = query.where(Issue.status != COLLECTING)
+    return serialize(db, db.scalars(query).all())
 
 
 @router.get("/users/{user_id}/issues", response_model=list[IssueOut])
@@ -244,8 +319,8 @@ def update_issue(issue_id: int, payload: IssueUpdate, db: Session = Depends(get_
         slots = load_slots(issue)
         slots.update(slot_changes or {})
         missing = apply_triage(issue, slots)
-        if "status" not in changes and issue.status not in _OPERATOR_STATUSES:
-            issue.status = status_for(missing)
+        if "status" not in changes:
+            issue.status = status_after_edit(issue.status, missing)
 
     db.commit()
     db.refresh(issue)

@@ -23,8 +23,9 @@ app/
 
 ## What is included
 
-- `POST /analyze` — split a message, triage every issue, save them, and return one clarification covering all the gaps.
-- `GET /issues` — all issues (the operator's feed).
+- `POST /analyze` — split a message, triage every issue, save them, and return one clarification covering all the gaps. Complete issues are handed to the operator immediately; incomplete ones stay in status `collecting`.
+- `POST /requests/{request_id}/clarify` — apply the customer's answer to the fields a request is still waiting for, and submit each issue as soon as it is complete.
+- `GET /issues` — the operator's feed. Excludes `collecting`, because an incomplete request is not the operator's work yet (`?include_collecting=true` for debugging).
 - `GET /users/{user_id}/issues` — a user's issues.
 - `GET /issues/{issue_id}` — a single issue.
 - `PATCH /issues/{issue_id}` — update title, description, category, priority, status, or `slots`. Writing a slot re-runs triage, so `missing` and the status are recomputed.
@@ -116,6 +117,11 @@ curl -X PATCH http://127.0.0.1:8000/issues/1 \
   -H "Content-Type: application/json" \
   -d '{"slots":{"serial_number":"SN-4481-XZ"}}'
 
+# The customer answers a clarifying question
+curl -X POST http://127.0.0.1:8000/requests/<request_id>/clarify \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Серийный номер SN-4481-XZ, купил 12.08.2026"}'
+
 # Generate a customer reply draft
 curl -X POST http://127.0.0.1:8000/issues/1/generate-reply
 
@@ -135,5 +141,8 @@ curl -X POST http://127.0.0.1:8000/issues/1/reply \
 - `USE_FAKE_LLM=1` swaps the model for a keyword-based stand-in, so the whole flow
   runs with no API key and survives a dead network during a demo. The triage rules
   are unchanged in that mode — only the text understanding is faked.
-- Statuses are `new`, `awaiting_info`, `in_progress`, `resolved`, `closed`. Sending a
-  final reply moves an issue to `resolved`.
+- Statuses are `collecting`, `new`, `awaiting_info`, `in_progress`, `resolved`, `closed`.
+  `collecting` means the chat is still gathering required fields and the operator
+  cannot see the issue. Sending a final reply moves an issue to `resolved`.
+- Re-running triage never pulls a submitted issue back into `collecting`: a gap that
+  appears later is shown to the operator instead of hiding the issue.

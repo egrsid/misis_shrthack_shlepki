@@ -82,9 +82,31 @@ def missing_fields(category: str, slots: dict[str, str | None]) -> list[str]:
     return [field for field in REQUIRED.get(category, []) if not slots.get(field)]
 
 
+# An issue in this status has not reached the operator yet: the chat is still
+# collecting the required fields from the customer.
+COLLECTING = "collecting"
+
+# Statuses the operator owns. Re-running triage must never overwrite them, and
+# must never pull an already submitted issue back out of the operator's feed.
+OPERATOR_STATUSES = frozenset({"awaiting_info", "in_progress", "resolved", "closed"})
+
+
 def status_for(missing: list[str]) -> str:
-    """An issue with holes in it cannot be worked on, only asked about."""
-    return "awaiting_info" if missing else "new"
+    """An incomplete issue is not sent to the operator, it is asked about first."""
+    return COLLECTING if missing else "new"
+
+
+def status_after_edit(current: str, missing: list[str]) -> str:
+    """Status after slots or category changed.
+
+    Only an issue that is still being collected can change side: once it has been
+    submitted, a new gap is shown to the operator but never hides the issue again.
+    """
+    if current in OPERATOR_STATUSES:
+        return current
+    if current == COLLECTING:
+        return status_for(missing)
+    return current
 
 
 def visible_slots(category: str, slots: dict[str, str | None]) -> dict[str, str | None]:

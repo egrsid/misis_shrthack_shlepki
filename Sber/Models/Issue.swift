@@ -86,6 +86,9 @@ enum IssuePriority: String, Codable, CaseIterable, Identifiable {
 }
 
 enum IssueStatus: String, Codable, CaseIterable, Identifiable {
+    /// Still being clarified in the client's chat; deliberately not in the
+    /// operator's feed, because an incomplete request is not their work yet.
+    case collecting
     case new
     case awaitingInfo = "awaiting_info"
     case inProgress = "in_progress"
@@ -94,14 +97,21 @@ enum IssueStatus: String, Codable, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// Wording for the operator.
     var title: String {
         switch self {
+        case .collecting: return "Собираем данные"
         case .new: return "Новая"
         case .awaitingInfo: return "Нужны данные"
         case .inProgress: return "В работе"
         case .resolved: return "Решена"
         case .closed: return "Закрыта"
         }
+    }
+
+    /// Statuses the operator can actually see, used for the feed filters.
+    static var operatorCases: [IssueStatus] {
+        allCases.filter { $0 != .collecting }
     }
 
     init(from decoder: Decoder) throws {
@@ -154,7 +164,9 @@ enum SlotField: String, Codable, CaseIterable, Identifiable {
 struct Issue: Identifiable, Codable, Equatable, Sendable {
     let id: Int
     let userId: Int
-    let originalText: String
+    /// Grows as the client answers clarifying questions, so the operator reads
+    /// the whole exchange in one place.
+    var originalText: String
     var title: String
     var description: String
     var category: IssueCategory
@@ -194,6 +206,19 @@ struct Issue: Identifiable, Codable, Equatable, Sendable {
 
     var replyDraft: String {
         finalReply ?? generatedReply ?? ""
+    }
+
+    /// True while the request is still being completed in the chat.
+    var isCollecting: Bool { status == .collecting }
+
+    /// Wording for the client, who should not see the team's internal statuses.
+    var clientStatusTitle: String {
+        switch status {
+        case .collecting: return "Нужны данные"
+        case .new, .awaitingInfo, .inProgress: return "На рассмотрении"
+        case .resolved: return "Отвечено"
+        case .closed: return finalReply == nil ? "Закрыто" : "Отвечено"
+        }
     }
 
     /// Keys are spelled out instead of using `.convertFromSnakeCase`, because that
@@ -237,11 +262,23 @@ struct AnalyzeResponse: Decodable, Sendable {
     let issues: [Issue]
     /// One message covering every gap in the whole request; nil when nothing is missing.
     let clarification: String?
+    /// Ids handed to the operator by this call. Issues still missing data stay in
+    /// the chat until the customer fills the gaps, so they are not listed here.
+    let submitted: [Int]
+
+    var submittedIssues: [Issue] {
+        issues.filter { submitted.contains($0.id) }
+    }
+
+    var pendingIssues: [Issue] {
+        issues.filter(\.isCollecting)
+    }
 
     enum CodingKeys: String, CodingKey {
         case requestId = "request_id"
         case issues
         case clarification
+        case submitted
     }
 }
 
@@ -257,6 +294,11 @@ struct IssuePatch: Encodable, Sendable {
 }
 
 struct ReplyRequest: Encodable, Sendable {
+    let text: String
+}
+
+/// The customer's answer to a clarifying question.
+struct ClarifyRequest: Encodable, Sendable {
     let text: String
 }
 

@@ -115,6 +115,57 @@ def fake_analyze(text: str) -> list[ExtractedIssue]:
     return list(found.values())
 
 
+_DATE_PATTERN = r"(\d{1,2}[.\-/]\d{1,2}[.\-/]\d{2,4})"
+
+
+def fake_extract_slots(text: str, needed_fields: list[str]) -> IssueSlots:
+    """Offline version of the follow-up extraction.
+
+    Only fields the team actually asked for are filled, and only from patterns
+    found in this answer — the same "never guess" rule the real prompt enforces.
+    """
+    wanted = set(needed_fields)
+    values: dict[str, str | None] = {}
+
+    if "order_id" in wanted:
+        match = re.search(r"(?:заказ\w*|order)\D{0,10}(\d{3,})", text, re.IGNORECASE)
+        values["order_id"] = match.group(1) if match else _bare_number(text)
+    if "serial_number" in wanted:
+        # A serial is the token that mixes letters and digits ("SN-4481-XZ"), taken
+        # whole. Matching a "серийный номер" label instead would clip the prefix,
+        # and a plain number is an order id, not a serial.
+        values["serial_number"] = next(
+            (
+                token
+                for token in re.findall(r"[A-Za-z0-9][A-Za-z0-9-]{3,}", text)
+                if any(c.isalpha() for c in token) and any(c.isdigit() for c in token)
+            ),
+            None,
+        )
+    if "purchase_date" in wanted:
+        match = re.search(_DATE_PATTERN, text)
+        values["purchase_date"] = match.group(1) if match else None
+    if "model" in wanted:
+        values["model"] = _model(text)
+    if "amount" in wanted:
+        values["amount"] = _amount(text)
+    if "reason" in wanted:
+        # No pattern for a free-form reason: take the answer itself when it is short.
+        stripped = text.strip()
+        values["reason"] = stripped if 3 <= len(stripped) <= 200 else None
+    if "issue" in wanted:
+        stripped = text.strip()
+        values["issue"] = stripped if 3 <= len(stripped) <= 200 else None
+
+    return IssueSlots(**values)
+
+
+def _bare_number(text: str) -> str | None:
+    """A number on its own, for answers like "8823"."""
+    match = re.fullmatch(r"\s*(\d{3,})\s*", text)
+    return match.group(1) if match else None
+
+
 def fake_reply(title: str, category: str, missing: list[str]) -> str:
     from app.core.triage import SLOT_LABELS
 
