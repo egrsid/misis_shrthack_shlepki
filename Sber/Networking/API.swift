@@ -1,9 +1,15 @@
 import Foundation
 
 enum API {
-    /// The simulator reaches the Mac's own localhost. For a real device, replace
-    /// this with the Mac's LAN address (e.g. http://192.168.1.42:8000) and make
-    /// sure both are on the same Wi-Fi.
+    /// The simulator reaches the Mac's own localhost, so this works as is.
+    ///
+    /// On a real phone, three things have to line up, and each one fails silently:
+    /// 1. put the Mac's LAN address here — `ipconfig getifaddr en0` on the Mac;
+    /// 2. start the backend as `uvicorn app.main:app --host 0.0.0.0`, because the
+    ///    default binding is 127.0.0.1 and refuses every connection from outside;
+    /// 3. phone and Mac on the same Wi-Fi, and not a guest network — venue and
+    ///    university networks often isolate clients from each other, and then
+    ///    nothing can fix this except a phone hotspot.
     static let base = "http://127.0.0.1:8000"
 
     /// Demo insurance: when the backend is unreachable during the defence, the app

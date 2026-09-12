@@ -13,6 +13,12 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<!-- Needed on a real device: since iOS 14 reaching a backend on the local
+	     network (the Mac running uvicorn) asks the user for permission, and
+	     without this string the prompt has nothing to show. On the simulator
+	     localhost needs none of this. -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Приложение обращается к серверу поддержки в вашей локальной сети, чтобы отправлять обращения и получать ответы.</string>
 	<!-- Dictation in the support chat. Without both of these iOS kills the app the
 	     moment the microphone button is tapped. -->
 	<key>NSMicrophoneUsageDescription</key>
