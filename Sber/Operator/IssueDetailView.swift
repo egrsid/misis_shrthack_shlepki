@@ -13,7 +13,11 @@ struct IssueDetailView: View {
     @State private var replyText: String = ""
     @State private var slotDrafts: [String: String] = [:]
     @State private var isWorking = false
+    @State private var isDrafting = false
     @State private var didLoadDraft = false
+    /// The draft exactly as the model wrote it. Used to tell an untouched draft
+    /// from one the operator has edited, so their wording is never overwritten.
+    @State private var generatedSnapshot = ""
     @State private var toast: String?
 
     private var issue: Issue? { store.issue(id: issueId) }
@@ -31,7 +35,7 @@ struct IssueDetailView: View {
             }
         }
         .navigationBarBackButtonHidden(true)
-        .onAppear(perform: loadDraftOnce)
+        .task { await prepareDraft() }
     }
 
     private func content(for issue: Issue) -> some View {
@@ -157,7 +161,9 @@ struct IssueDetailView: View {
     private func missingCard(for issue: Issue) -> some View {
         Card(title: "Не хватает данных", iconName: "exclamationmark.triangle.fill", accent: .missingRed) {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Для категории «\(issue.category.title)» эти поля обязательны. Клиенту отправлен запрос — заполните, когда он ответит.")
+                // An issue only reaches the operator with gaps when the client said
+                // they could not provide the data, so the wording says exactly that.
+                Text("Для категории «\(issue.category.title)» эти поля обязательны, но клиент не смог их указать. Заполните, когда получите данные.")
                     .font(.system(size: 13))
                     .foregroundColor(.black.opacity(0.65))
                     .fixedSize(horizontal: false, vertical: true)
@@ -199,40 +205,39 @@ struct IssueDetailView: View {
     private func replyCard(for issue: Issue) -> some View {
         Card(title: "Ответ клиенту", iconName: "pencil.and.outline") {
             VStack(alignment: .leading, spacing: 12) {
-                // Nothing is sent without the operator reading it: the draft is
-                // editable text, not a preview.
-                TextEditor(text: $replyText)
-                    .font(.system(size: 14))
-                    .frame(minHeight: 130)
-                    .padding(8)
+                // The draft is written as soon as the card opens; the operator's
+                // job is to read and correct it, not to ask for it.
+                if isDrafting {
+                    HStack(spacing: 8) {
+                        ProgressView().scaleEffect(0.8)
+                        Text("Готовим черновик ответа…")
+                            .font(.system(size: 13))
+                            .foregroundColor(.black.opacity(0.6))
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 130)
                     .background(Color.black.opacity(0.04))
                     .cornerRadius(12)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color.black.opacity(0.1), lineWidth: 1)
-                    )
+                } else {
+                    // Nothing is sent without the operator reading it: the draft is
+                    // editable text, not a preview.
+                    TextEditor(text: $replyText)
+                        .font(.system(size: 14))
+                        .frame(minHeight: 130)
+                        .padding(8)
+                        .background(Color.black.opacity(0.04))
+                        .cornerRadius(12)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(Color.black.opacity(0.1), lineWidth: 1)
+                        )
 
-                if replyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Text("Сгенерируйте черновик или напишите ответ сами.")
+                    Text(issue.generatedReply == nil
+                         ? "Черновик не удалось подготовить — напишите ответ сами."
+                         : "Черновик подготовлен ИИ. Проверьте и при необходимости поправьте.")
                         .font(.system(size: 12))
                         .foregroundColor(.black.opacity(0.5))
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-
-                Button {
-                    Task { await generateDraft() }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "sparkles")
-                        Text(issue.generatedReply == nil ? "Сгенерировать черновик" : "Сгенерировать заново")
-                    }
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(.pantone349)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(Color.pantone349.opacity(0.1))
-                    .cornerRadius(12)
-                }
-                .disabled(isWorking)
 
                 Button {
                     Task { await sendReply() }
@@ -302,11 +307,30 @@ struct IssueDetailView: View {
         )
     }
 
-    /// Loads the stored draft once, so a re-render never overwrites the operator's typing.
-    private func loadDraftOnce() {
+    /// Fills the editor once, asking the model for a draft if there is none yet.
+    ///
+    /// Runs once per screen, so a re-render never overwrites the operator's typing.
+    /// A failure here is not fatal: the editor simply stays empty to type into.
+    private func prepareDraft() async {
         guard !didLoadDraft, let issue else { return }
-        replyText = issue.replyDraft
         didLoadDraft = true
+
+        if !issue.replyDraft.isEmpty {
+            replyText = issue.replyDraft
+            generatedSnapshot = issue.finalReply == nil ? replyText : ""
+            return
+        }
+
+        await regenerate()
+    }
+
+    /// Asks the model for a draft and puts it in the editor.
+    private func regenerate() async {
+        isDrafting = true
+        await store.generateReply(issueId: issueId)
+        isDrafting = false
+        replyText = store.issue(id: issueId)?.replyDraft ?? ""
+        generatedSnapshot = replyText
     }
 
     // MARK: Actions
@@ -323,18 +347,14 @@ struct IssueDetailView: View {
         let ok = await store.update(issueId: issueId, patch: patch)
         isWorking = false
 
-        if ok {
-            slotDrafts = [:]
-            showToast("Данные сохранены, список недостающих полей пересчитан")
-        }
-    }
+        guard ok else { return }
+        slotDrafts = [:]
+        showToast("Данные сохранены, список недостающих полей пересчитан")
 
-    private func generateDraft() async {
-        isWorking = true
-        let ok = await store.generateReply(issueId: issueId)
-        isWorking = false
-        if ok, let generated = store.issue(id: issueId)?.generatedReply {
-            replyText = generated
+        // The old draft asked for fields that are now filled in. Rewrite it —
+        // unless the operator has already put their own wording in.
+        if replyText == generatedSnapshot {
+            await regenerate()
         }
     }
 

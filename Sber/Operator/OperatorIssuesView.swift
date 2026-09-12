@@ -1,6 +1,10 @@
 import SwiftUI
 
-/// The operator's main screen: every issue the triage produced, filterable.
+/// The operator's main screen: the queue of requests waiting for an answer.
+///
+/// Deliberately sparse. Answered issues live in their own list, the filters sit in
+/// one menu instead of three rows of chips, and a card shows only what helps to
+/// pick the next request: how urgent, what about, how long it has been waiting.
 struct OperatorIssuesView: View {
     @StateObject private var store = OperatorIssuesStore()
     @State private var selectedIssueId: Int?
@@ -13,7 +17,7 @@ struct OperatorIssuesView: View {
                 if API.useMock { MockBanner() }
 
                 header
-                filters
+                tabs
 
                 if let message = store.errorMessage, store.issues.isEmpty {
                     ErrorStrip(
@@ -23,8 +27,6 @@ struct OperatorIssuesView: View {
                     )
                     .padding(16)
                     Spacer()
-                } else if store.issues.isEmpty && !store.isLoading {
-                    emptyState
                 } else {
                     list
                 }
@@ -37,32 +39,35 @@ struct OperatorIssuesView: View {
         }
     }
 
+    // MARK: Header
+
     private var header: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline) {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 10) {
                 Text("Заявки")
-                    .font(.system(size: 28, weight: .bold))
+                    .font(.system(size: 26, weight: .bold))
                     .foregroundColor(.white)
 
                 Spacer()
+
+                filterMenu
 
                 Button {
                     Task { await store.load() }
                 } label: {
                     Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundColor(.white)
-                        .frame(width: 34, height: 34)
-                        .background(Color.white.opacity(0.18))
+                        .frame(width: 32, height: 32)
+                        .background(Color.white.opacity(0.16))
                         .clipShape(Circle())
                 }
                 .disabled(store.isLoading)
             }
 
-            // Tells the operator what to do first without opening anything.
             Text(subtitle)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(.white.opacity(0.85))
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.white.opacity(0.8))
         }
         .padding(.horizontal, 16)
         .padding(.top, 12)
@@ -71,63 +76,77 @@ struct OperatorIssuesView: View {
 
     private var subtitle: String {
         if store.isLoading && store.issues.isEmpty { return "Загружаем заявки…" }
-        let total = store.filteredIssues.count
-        let waiting = store.awaitingInfoCount
-        if waiting > 0 {
-            return "\(total) в списке · \(waiting) ждут данных от клиента"
+        if store.tab == .answered {
+            return "\(store.answeredCount) отвечено"
         }
-        return "\(total) в списке"
+        var parts = ["\(store.activeCount) в очереди"]
+        if store.withGapsCount > 0 {
+            parts.append("\(store.withGapsCount) без данных")
+        }
+        return parts.joined(separator: " · ")
     }
 
-    private var filters: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                if store.hasActiveFilters {
-                    FilterChip(title: "Сбросить", isSelected: false) { store.clearFilters() }
-                }
-
-                // collecting is excluded: those issues are still in the client's
-                // chat and never appear in this feed.
-                ForEach(IssueStatus.operatorCases) { status in
-                    FilterChip(
-                        title: status.title,
-                        isSelected: store.statusFilter == status
-                    ) {
-                        store.statusFilter = store.statusFilter == status ? nil : status
-                    }
-                }
-
-                Divider().frame(height: 20).overlay(Color.white.opacity(0.4))
-
+    /// One button instead of three rows of chips.
+    private var filterMenu: some View {
+        Menu {
+            Picker("Приоритет", selection: $store.priorityFilter) {
+                Text("Любой приоритет").tag(IssuePriority?.none)
                 ForEach(IssuePriority.allCases) { priority in
-                    FilterChip(
-                        title: priority.title,
-                        isSelected: store.priorityFilter == priority
-                    ) {
-                        store.priorityFilter = store.priorityFilter == priority ? nil : priority
-                    }
-                }
-
-                Divider().frame(height: 20).overlay(Color.white.opacity(0.4))
-
-                ForEach(IssueCategory.allCases) { category in
-                    FilterChip(
-                        title: category.title,
-                        isSelected: store.categoryFilter == category
-                    ) {
-                        store.categoryFilter = store.categoryFilter == category ? nil : category
-                    }
+                    Text(priority.title).tag(Optional(priority))
                 }
             }
-            .padding(.horizontal, 16)
+            Picker("Категория", selection: $store.categoryFilter) {
+                Text("Все категории").tag(IssueCategory?.none)
+                ForEach(IssueCategory.allCases) { category in
+                    Text(category.title).tag(Optional(category))
+                }
+            }
+            if store.hasActiveFilters {
+                Button("Сбросить фильтры", role: .destructive) { store.clearFilters() }
+            }
+        } label: {
+            ZStack(alignment: .topTrailing) {
+                Image(systemName: "line.3.horizontal.decrease")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(width: 32, height: 32)
+                    .background(Color.white.opacity(0.16))
+                    .clipShape(Circle())
+
+                if store.hasActiveFilters {
+                    Circle()
+                        .fill(Color.priorityHigh)
+                        .frame(width: 8, height: 8)
+                        .overlay(Circle().stroke(Color.white, lineWidth: 1.5))
+                }
+            }
         }
+    }
+
+    private var tabs: some View {
+        HStack(spacing: 8) {
+            ForEach(OperatorFeedTab.allCases) { tab in
+                FilterChip(
+                    title: tab == .active
+                        ? "\(tab.title) · \(store.activeCount)"
+                        : "\(tab.title) · \(store.answeredCount)",
+                    isSelected: store.tab == tab
+                ) {
+                    store.tab = tab
+                }
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 16)
         .padding(.bottom, 10)
     }
 
+    // MARK: List
+
     private var list: some View {
         ScrollView {
-            LazyVStack(spacing: 12) {
-                if let message = store.errorMessage {
+            LazyVStack(spacing: 10) {
+                if let message = store.errorMessage, !store.issues.isEmpty {
                     ErrorStrip(message: message, onRetry: { Task { await store.load() } })
                 }
 
@@ -140,11 +159,8 @@ struct OperatorIssuesView: View {
                     .buttonStyle(.plain)
                 }
 
-                if store.filteredIssues.isEmpty {
-                    Text("Под фильтры ничего не подошло")
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(.white.opacity(0.9))
-                        .padding(.top, 40)
+                if store.filteredIssues.isEmpty && !store.isLoading {
+                    emptyState
                 }
             }
             .padding(.horizontal, 16)
@@ -154,81 +170,98 @@ struct OperatorIssuesView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 12) {
-            Spacer()
-            Image(systemName: "tray")
-                .font(.system(size: 40))
-                .foregroundColor(.white.opacity(0.8))
-            Text("Заявок пока нет")
-                .font(.system(size: 18, weight: .semibold))
+        VStack(spacing: 10) {
+            Image(systemName: store.tab == .active ? "tray" : "checkmark.circle")
+                .font(.system(size: 34))
+                .foregroundColor(.white.opacity(0.75))
+            Text(emptyTitle)
+                .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(.white)
-            Text("Отправьте обращение из чата клиента — разбор появится здесь.")
-                .font(.system(size: 14))
-                .foregroundColor(.white.opacity(0.85))
-                .multilineTextAlignment(.center)
-            Spacer()
+            if store.hasActiveFilters {
+                Button("Сбросить фильтры") { store.clearFilters() }
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(.white)
+                    .underline()
+            }
         }
-        .padding(.horizontal, 32)
+        .padding(.top, 60)
+        .frame(maxWidth: .infinity)
+    }
+
+    private var emptyTitle: String {
+        if store.hasActiveFilters { return "Под фильтры ничего не подошло" }
+        return store.tab == .active ? "Очередь пуста" : "Отвеченных заявок пока нет"
     }
 }
 
-/// One card in the feed.
+/// One card in the queue: urgency, subject, age. Everything else is in the card.
 private struct IssueRow: View {
     let issue: Issue
 
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.locale = Locale(identifier: "ru_RU")
+        formatter.unitsStyle = .full
+        return formatter
+    }()
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
-                IssueBadge(
-                    text: issue.category.title,
-                    color: .pantone349,
-                    iconName: issue.category.iconName,
-                    filled: false
-                )
-                IssueBadge(text: issue.priority.title, color: issue.priority.color)
-                IssueBadge(text: issue.status.title, color: issue.status.color, filled: false)
+        HStack(alignment: .top, spacing: 11) {
+            // Priority as a dot: visible at a glance, no capsule to read.
+            Circle()
+                .fill(issue.priority.color)
+                .frame(width: 9, height: 9)
+                .padding(.top, 5)
 
-                Spacer()
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(issue.title)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(.black)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
 
-                // Decomposition is the headline feature, so the link back to the
-                // original message is always on screen.
-                if let badge = issue.groupBadge {
-                    Text(badge)
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundColor(.pantone349)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(Color.pantone349.opacity(0.12))
-                        .cornerRadius(6)
+                    Spacer(minLength: 4)
+
+                    // Decomposition stays visible: this issue came out of a
+                    // message that held several problems.
+                    if let badge = issue.groupBadge {
+                        Text(badge)
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(.pantone349)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.pantone349.opacity(0.1))
+                            .cornerRadius(5)
+                    }
                 }
-            }
 
-            Text(issue.title)
-                .font(.system(size: 16, weight: .bold))
-                .foregroundColor(.black)
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
+                Text(secondLine)
+                    .font(.system(size: 12))
+                    .foregroundColor(.black.opacity(0.5))
 
-            Text(issue.originalText)
-                .font(.system(size: 13))
-                .foregroundColor(.black.opacity(0.55))
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
-
-            if !issue.missingFields.isEmpty {
-                HStack(spacing: 5) {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.system(size: 11, weight: .bold))
+                if issue.isBlocked && !issue.isDone {
                     Text("Не хватает: " + issue.missingFields.map(\.title).joined(separator: ", "))
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.missingRed)
                         .multilineTextAlignment(.leading)
                 }
-                .foregroundColor(.missingRed)
             }
         }
-        .padding(14)
+        .padding(.horizontal, 13)
+        .padding(.vertical, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.white)
-        .cornerRadius(16)
+        .cornerRadius(14)
+    }
+
+    /// Category, age, and a status only when it is not the default one — a queue
+    /// where every card says "Новая" says nothing.
+    private var secondLine: String {
+        var parts = [issue.category.title]
+        if issue.priority == .critical { parts.append("критический") }
+        if issue.status != .new { parts.append(issue.status.title.lowercased()) }
+        parts.append(Self.relativeFormatter.localizedString(for: issue.createdAt, relativeTo: Date()))
+        return parts.joined(separator: " · ")
     }
 }

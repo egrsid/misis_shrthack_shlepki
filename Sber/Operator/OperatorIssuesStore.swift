@@ -1,5 +1,22 @@
 import Foundation
 
+/// The two lists an operator works with. Answered issues are deliberately kept
+/// out of the main queue — they are done, and leaving them there is what made the
+/// feed hard to read.
+enum OperatorFeedTab: String, CaseIterable, Identifiable {
+    case active
+    case answered
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .active: return "В работе"
+        case .answered: return "Отвеченные"
+        }
+    }
+}
+
 /// Single source of truth for the operator's feed and card.
 ///
 /// The detail screen reads its issue out of here by id, so a saved slot or a sent
@@ -10,37 +27,44 @@ final class OperatorIssuesStore: ObservableObject {
     @Published var isLoading = false
     @Published var errorMessage: String?
 
-    @Published var statusFilter: IssueStatus?
+    @Published var tab: OperatorFeedTab = .active
     @Published var categoryFilter: IssueCategory?
     @Published var priorityFilter: IssuePriority?
 
     private let client = APIClient.shared
 
-    /// Open work first, then the most dangerous, then the newest — an operator
-    /// should meet a `critical` safety issue at the top of the list.
+    /// Oldest first in the queue: the request that has been waiting longest is the
+    /// one to answer next. Answered issues are listed most recent first instead.
     var filteredIssues: [Issue] {
         issues
             .filter { issue in
-                if let statusFilter, issue.status != statusFilter { return false }
+                guard issue.isDone == (tab == .answered) else { return false }
                 if let categoryFilter, issue.category != categoryFilter { return false }
                 if let priorityFilter, issue.priority != priorityFilter { return false }
                 return true
             }
             .sorted { left, right in
-                if left.isDone != right.isDone { return !left.isDone }
-                if left.priority.rank != right.priority.rank {
-                    return left.priority.rank < right.priority.rank
+                if tab == .answered {
+                    return left.updatedAt > right.updatedAt
                 }
-                return left.id > right.id
+                if left.createdAt != right.createdAt {
+                    return left.createdAt < right.createdAt
+                }
+                return left.id < right.id
             }
     }
 
     var hasActiveFilters: Bool {
-        statusFilter != nil || categoryFilter != nil || priorityFilter != nil
+        categoryFilter != nil || priorityFilter != nil
     }
 
-    var awaitingInfoCount: Int {
-        issues.filter { $0.status == .awaitingInfo }.count
+    var activeCount: Int { issues.filter { !$0.isDone }.count }
+    var answeredCount: Int { issues.filter(\.isDone).count }
+
+    /// Issues an operator has to chase data for: submitted, but with gaps. Happens
+    /// when a client sent a request without the fields they could not provide.
+    var withGapsCount: Int {
+        issues.filter { !$0.isDone && $0.isBlocked }.count
     }
 
     func issue(id: Int) -> Issue? {
@@ -48,7 +72,6 @@ final class OperatorIssuesStore: ObservableObject {
     }
 
     func clearFilters() {
-        statusFilter = nil
         categoryFilter = nil
         priorityFilter = nil
     }
