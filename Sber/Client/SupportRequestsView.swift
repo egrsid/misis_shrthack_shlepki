@@ -3,6 +3,10 @@ import SwiftUI
 /// The client's own requests: what was submitted, where each one stands, and the
 /// operator's answer once it has been approved and sent.
 struct SupportRequestsView: View {
+    /// When opened from the chat, "answer in chat" goes back instead of pushing a
+    /// second chat on top of the first one.
+    var openedFromChat: Bool = false
+
     @Environment(\.dismiss) private var dismiss
 
     @State private var issues: [Issue] = []
@@ -109,7 +113,11 @@ struct SupportRequestsView: View {
                 }
 
                 ForEach(sortedIssues) { issue in
-                    RequestCard(issue: issue) { openChat = true }
+                    RequestCard(
+                        issue: issue,
+                        answerTitle: openedFromChat ? "Вернуться в чат" : "Ответить в чате",
+                        onAnswer: goToChat
+                    )
                 }
             }
             .padding(.horizontal, 16)
@@ -132,10 +140,8 @@ struct SupportRequestsView: View {
                 .foregroundColor(.white.opacity(0.85))
                 .multilineTextAlignment(.center)
 
-            Button {
-                openChat = true
-            } label: {
-                Text("Написать в поддержку")
+            Button(action: goToChat) {
+                Text(openedFromChat ? "Вернуться в чат" : "Написать в поддержку")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(.pantone349)
                     .padding(.horizontal, 24)
@@ -147,6 +153,15 @@ struct SupportRequestsView: View {
             Spacer()
         }
         .padding(.horizontal, 32)
+    }
+
+    /// Back to the chat the client came from, or into a new one.
+    private func goToChat() {
+        if openedFromChat {
+            dismiss()
+        } else {
+            openChat = true
+        }
     }
 
     private func requestWord(_ count: Int) -> String {
@@ -172,6 +187,7 @@ struct SupportRequestsView: View {
 /// One request as the client sees it.
 private struct RequestCard: View {
     let issue: Issue
+    let answerTitle: String
     let onAnswer: () -> Void
 
     private static let dateFormatter: DateFormatter = {
@@ -214,7 +230,7 @@ private struct RequestCard: View {
                         .fixedSize(horizontal: false, vertical: true)
 
                     Button(action: onAnswer) {
-                        Text("Ответить в чате")
+                        Text(answerTitle)
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundColor(.white)
                             .padding(.horizontal, 14)

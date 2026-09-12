@@ -21,16 +21,23 @@ struct ProductsView: View {
 
                         Spacer()
 
-                        // Catalogue, search, orders and support requests.
+                        // Labelled on purpose: a bare grid icon in the corner does
+                        // not tell anyone it opens the catalogue.
                         NavigationLink {
-                            ClientMenuView()
+                            CatalogueView()
                         } label: {
-                            Image(systemName: "square.grid.2x2")
-                                .font(.system(size: 17, weight: .semibold))
-                                .foregroundColor(.pantone349)
-                                .frame(width: 40, height: 40)
-                                .background(Color.white)
-                                .clipShape(Circle())
+                            HStack(spacing: 6) {
+                                Image(systemName: "square.grid.2x2")
+                                    .font(.system(size: 14, weight: .semibold))
+                                Text("Каталог")
+                                    .font(.system(size: 14, weight: .semibold))
+                            }
+                            .foregroundColor(.pantone349)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 9)
+                            .background(Color.white)
+                            .clipShape(Capsule())
+                            .shadow(color: .black.opacity(0.12), radius: 4, y: 2)
                         }
                     }
                     .padding(.horizontal, 8)

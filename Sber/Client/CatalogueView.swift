@@ -1,40 +1,39 @@
 import SwiftUI
 
-/// Menu behind the button in the top-right corner of the client's main screen.
+/// The store catalogue, opened from the labelled button on the client's main screen.
 ///
-/// Only "Запросы в поддержку" is real; search, catalogue and orders are stubs —
-/// the case is about triaging support requests, not about building a store.
-struct ClientMenuView: View {
+/// Every section here is a stub: the case is about triaging support requests, not
+/// about building a shop. Support requests live in the chat, not in the catalogue —
+/// that is where the client is already talking to us.
+struct CatalogueView: View {
     private enum Section: String, Identifiable, Hashable {
         case search
-        case catalogue
+        case categories
         case orders
-        case requests
 
         var id: String { rawValue }
 
         var title: String {
             switch self {
-            case .search: return "Поиск"
-            case .catalogue: return "Каталог"
+            case .search: return "Поиск по товарам"
+            case .categories: return "Категории"
             case .orders: return "Мои заказы"
-            case .requests: return "Запросы в поддержку"
+            }
+        }
+
+        var subtitle: String {
+            switch self {
+            case .search: return "Найти товар по названию или модели"
+            case .categories: return "Смартфоны, ноутбуки, аксессуары"
+            case .orders: return "Оформленные и доставленные заказы"
             }
         }
 
         var iconName: String {
             switch self {
             case .search: return "magnifyingglass"
-            case .catalogue: return "square.grid.2x2"
+            case .categories: return "square.grid.2x2"
             case .orders: return "shippingbox"
-            case .requests: return "bubble.left.and.text.bubble.right"
-            }
-        }
-
-        var subtitle: String? {
-            switch self {
-            case .requests: return "Статусы обращений и ответы поддержки"
-            default: return nil
             }
         }
     }
@@ -42,7 +41,7 @@ struct ClientMenuView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selected: Section?
 
-    private let sections: [Section] = [.search, .catalogue, .orders, .requests]
+    private let sections: [Section] = [.search, .categories, .orders]
 
     var body: some View {
         ZStack {
@@ -68,12 +67,7 @@ struct ClientMenuView: View {
         }
         .navigationBarBackButtonHidden(true)
         .navigationDestination(item: $selected) { section in
-            switch section {
-            case .requests:
-                SupportRequestsView()
-            default:
-                StubSectionView(title: section.title, iconName: section.iconName)
-            }
+            StubSectionView(title: section.title, iconName: section.iconName)
         }
     }
 
@@ -90,7 +84,7 @@ struct ClientMenuView: View {
 
             Spacer()
 
-            Text("Меню")
+            Text("Каталог")
                 .font(.system(size: 18, weight: .bold))
                 .foregroundColor(.white)
 
@@ -116,12 +110,10 @@ struct ClientMenuView: View {
                 Text(section.title)
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(.black)
-                if let subtitle = section.subtitle {
-                    Text(subtitle)
-                        .font(.system(size: 12))
-                        .foregroundColor(.black.opacity(0.55))
-                        .multilineTextAlignment(.leading)
-                }
+                Text(section.subtitle)
+                    .font(.system(size: 12))
+                    .foregroundColor(.black.opacity(0.55))
+                    .multilineTextAlignment(.leading)
             }
 
             Spacer()
@@ -155,6 +147,7 @@ struct StubSectionView: View {
                 Text(title)
                     .font(.system(size: 22, weight: .bold))
                     .foregroundColor(.white)
+                    .multilineTextAlignment(.center)
                 Text("Раздел в разработке")
                     .font(.system(size: 14))
                     .foregroundColor(.white.opacity(0.85))
@@ -180,6 +173,6 @@ struct StubSectionView: View {
 
 #Preview {
     NavigationStack {
-        ClientMenuView()
+        CatalogueView()
     }
 }

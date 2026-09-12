@@ -25,6 +25,7 @@ struct SupportChatView: View {
     @State private var pendingIssues: [Issue] = []
     /// Counts answers that produced nothing, to offer a way out of a loop.
     @State private var fruitlessAnswers = 0
+    @State private var showHistory = false
 
     private var userId: Int { MockAuthStore.shared.currentClientId }
 
@@ -73,6 +74,9 @@ struct SupportChatView: View {
             }
         }
         .navigationBarBackButtonHidden(true)
+        .navigationDestination(isPresented: $showHistory) {
+            SupportRequestsView(openedFromChat: true)
+        }
     }
 
     private var header: some View {
@@ -101,7 +105,23 @@ struct SupportChatView: View {
 
             Spacer()
 
-            Color.clear.frame(width: 32, height: 32)
+            // History belongs next to the conversation it is about, not in the
+            // store catalogue.
+            Button {
+                showHistory = true
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "clock.arrow.circlepath")
+                        .font(.system(size: 13, weight: .semibold))
+                    Text("История")
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .foregroundColor(.pantone349)
+                .padding(.horizontal, 11)
+                .padding(.vertical, 7)
+                .background(Color.white)
+                .clipShape(Capsule())
+            }
         }
         .padding(.horizontal, 20)
         .padding(.top, 16)
@@ -246,7 +266,7 @@ struct SupportChatView: View {
 
     private func submittedText(for issues: [Issue]) -> String {
         let titles = issues.map { "• \($0.title)" }.joined(separator: "\n")
-        let tail = "\n\nОтвет придёт в раздел «Запросы в поддержку»."
+        let tail = "\n\nОтвет появится здесь же, по кнопке «История» наверху."
         if issues.count == 1 {
             return "Готово, передал оператору:\n\(titles)" + tail
         }
