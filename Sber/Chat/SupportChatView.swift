@@ -283,7 +283,6 @@ struct SupportChatView: View {
                     response = try await APIClient.shared.clarify(requestId: requestId, text: text)
                 } else {
                     response = try await APIClient.shared.analyze(userId: userId, text: text)
-                    SupportRequestStore.shared.record(message: text, issues: response.issues)
                 }
                 lastFailedText = nil
                 apply(response)

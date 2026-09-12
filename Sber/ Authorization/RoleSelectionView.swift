@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct RoleSelectionView: View {
+    @ObservedObject private var auth = AuthStore.shared
+
     var body: some View {
         NavigationStack {
             AuthBackground {
@@ -23,6 +25,9 @@ struct RoleSelectionView: View {
                 }
             }
         }
+        // Signing out changes the session id, which rebuilds the stack and brings
+        // the app back here with nothing left over from the previous account.
+        .id(auth.sessionId)
     }
 }
 

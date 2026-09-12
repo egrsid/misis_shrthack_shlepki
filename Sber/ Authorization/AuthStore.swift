@@ -27,6 +27,10 @@ final class AuthStore: ObservableObject {
     static let shared = AuthStore()
 
     @Published private(set) var currentUser: AppUser?
+    /// Changes on every sign-out. The root view keys its NavigationStack on this,
+    /// so signing out drops the whole stack — and with it every screen and every
+    /// piece of in-memory state belonging to the previous account.
+    @Published private(set) var sessionId = UUID()
 
     private init() {}
 
@@ -71,6 +75,7 @@ final class AuthStore: ObservableObject {
 
     func signOut() {
         currentUser = nil
+        sessionId = UUID()
     }
 
     private static func isValidEmail(_ email: String) -> Bool {

@@ -44,7 +44,9 @@ struct CatalogueView: View {
     }
 
     @Environment(\.dismiss) private var dismiss
+    @ObservedObject private var auth = AuthStore.shared
     @State private var selected: Section?
+    @State private var isConfirmingSignOut = false
 
     private let sections: [Section] = [.search, .categories, .orders, .history]
 
@@ -65,6 +67,8 @@ struct CatalogueView: View {
                             }
                             .buttonStyle(.plain)
                         }
+
+                        accountBlock
                     }
                     .padding(16)
                 }
@@ -79,6 +83,65 @@ struct CatalogueView: View {
                 StubSectionView(title: section.title, iconName: section.iconName)
             }
         }
+        // Confirmed on purpose: an accidental tap mid-demo would drop the session
+        // and the whole conversation with it.
+        .confirmationDialog(
+            "Выйти из аккаунта?",
+            isPresented: $isConfirmingSignOut,
+            titleVisibility: .visible
+        ) {
+            Button("Выйти", role: .destructive) { auth.signOut() }
+            Button("Отмена", role: .cancel) {}
+        } message: {
+            Text("Переписка с поддержкой в этом чате не сохранится. Заявки и история просмотров останутся в вашем аккаунте.")
+        }
+    }
+
+    /// Who is signed in, and the way out.
+    private var accountBlock: some View {
+        VStack(spacing: 10) {
+            if let user = auth.currentUser {
+                HStack(spacing: 10) {
+                    Image(systemName: "person.crop.circle")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.pantone349)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(user.login)
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(.black)
+                        if let email = user.email {
+                            Text(email)
+                                .font(.system(size: 12))
+                                .foregroundColor(.black.opacity(0.55))
+                        }
+                    }
+
+                    Spacer()
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.white)
+                .cornerRadius(16)
+            }
+
+            Button {
+                isConfirmingSignOut = true
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "rectangle.portrait.and.arrow.right")
+                    Text("Выйти из аккаунта")
+                }
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(.missingRed)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 13)
+                .background(Color.white)
+                .cornerRadius(14)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.top, 8)
     }
 
     private var header: some View {
