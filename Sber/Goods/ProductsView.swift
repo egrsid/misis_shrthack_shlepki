@@ -1,12 +1,14 @@
 import SwiftUI
 
-private let productCardWidth: CGFloat = 160
-private let productCardHeight: CGFloat = 170
+private let productCardHeight: CGFloat = 200
 
 struct ProductsView: View {
     @State private var isSupportPresented = false
 
-    private let columns = [GridItem(.adaptive(minimum: productCardWidth, maximum: productCardWidth), spacing: 28)]
+    private let columns = [
+        GridItem(.flexible(), spacing: 28),
+        GridItem(.flexible())
+    ]
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -59,28 +61,29 @@ private struct ProductCard: View {
             ZStack {
                 Circle()
                     .fill(Color.pantone349.opacity(0.12))
-                    .frame(width: 72, height: 72)
+                    .frame(width: 88, height: 88)
 
                 Image(systemName: product.imageName)
-                    .font(.system(size: 30))
+                    .font(.system(size: 36))
                     .foregroundColor(.pantone349)
             }
 
             Text(product.name)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 16, weight: .semibold))
                 .foregroundColor(.black)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
-                .frame(height: 36, alignment: .top)
+                .frame(height: 42, alignment: .top)
 
             Text("\(product.price) ₽")
-                .font(.system(size: 16, weight: .bold))
+                .font(.system(size: 18, weight: .bold))
                 .foregroundColor(.pantone349)
 
             Spacer(minLength: 0)
         }
         .padding(16)
-        .frame(width: productCardWidth, height: productCardHeight)
+        .frame(maxWidth: .infinity)
+        .frame(height: productCardHeight)
         .background(Color.white)
         .cornerRadius(16)
     }
