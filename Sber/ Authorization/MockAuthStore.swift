@@ -51,10 +51,14 @@ final class MockAuthStore {
         }
         guard !alreadyExists else { return .alreadyExists }
 
-        clients.append(
-            ClientAccount(id: nextClientId, login: login, email: email, password: password)
+        let account = ClientAccount(
+            id: nextClientId, login: login, email: email, password: password
         )
+        clients.append(account)
         nextClientId += 1
+        // Registration goes straight into the app without a login step, so the
+        // current client has to be set here too, not only in loginClient.
+        currentClientId = account.id
         return nil
     }
 
