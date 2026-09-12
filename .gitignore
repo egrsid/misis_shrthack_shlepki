@@ -1,6 +1,16 @@
+<<<<<<< HEAD
 .DS_Store
 build/
 DerivedData/
 *.xcuserstate
 xcuserdata/
 .swiftpm/
+=======
+.env
+support.db
+__pycache__/
+*.py[cod]
+.venv/
+
+.DS_Stores
+>>>>>>> 6254121 (backend 1st version)
