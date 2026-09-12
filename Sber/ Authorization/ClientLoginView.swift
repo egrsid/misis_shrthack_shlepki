@@ -1,10 +1,12 @@
 import SwiftUI
 
-private enum ClientLoginRoute: Identifiable, Hashable {
+/// The id is the raw value, not `self`. With `var id: Self { self }` this crashed
+/// on the way to registration — found on a device by the iOS side of the team.
+private enum ClientLoginRoute: String, Identifiable, Hashable {
     case register
     case home
 
-    var id: Self { self }
+    var id: String { rawValue }
 }
 
 struct ClientLoginView: View {
