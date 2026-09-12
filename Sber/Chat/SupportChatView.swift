@@ -27,7 +27,7 @@ struct SupportChatView: View {
     @State private var fruitlessAnswers = 0
     @State private var showHistory = false
 
-    private var userId: Int { MockAuthStore.shared.currentClientId }
+    private var userId: Int { AuthStore.shared.currentUserId }
 
     var body: some View {
         ZStack {

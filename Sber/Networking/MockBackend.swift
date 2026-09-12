@@ -12,6 +12,29 @@ actor MockBackend {
     private var issues: [Issue] = []
     private var nextId = 1
 
+    /// Accounts and history for the offline demo. In-memory only: nothing here is
+    /// written to disk, and the real credentials live hashed in the backend database.
+    private struct MockAccount {
+        let user: AppUser
+        let password: String
+    }
+
+    private var accounts: [MockAccount] = [
+        MockAccount(
+            user: AppUser(
+                id: 1,
+                login: "operator",
+                email: nil,
+                role: .operatorRole,
+                createdAt: Date()
+            ),
+            password: "12345"
+        )
+    ]
+    private var nextUserId = 2
+    private var viewHistory: [Int: [ProductViewRecord]] = [:]
+    private var nextViewId = 1
+
     // Same table as backend_v1/app/core/triage.py.
     private static let required: [IssueCategory: [SlotField]] = [
         .warranty: [.orderId, .model, .serialNumber, .purchaseDate],
@@ -36,6 +59,95 @@ actor MockBackend {
         .productAdvice: "Чтобы подобрать товар",
         .other: "По вашему обращению",
     ]
+
+    // MARK: Auth
+
+    func register(login: String, email: String, password: String) throws -> AppUser {
+        let normalisedLogin = login.trimmingCharacters(in: .whitespaces).lowercased()
+        let normalisedEmail = email.trimmingCharacters(in: .whitespaces).lowercased()
+
+        if accounts.contains(where: { $0.user.login == normalisedLogin }) {
+            throw APIError.server(status: 409, detail: "Такой логин уже занят")
+        }
+        if accounts.contains(where: { $0.user.email == normalisedEmail }) {
+            throw APIError.server(status: 409, detail: "Такая почта уже зарегистрирована")
+        }
+
+        let user = AppUser(
+            id: nextUserId,
+            login: normalisedLogin,
+            email: normalisedEmail,
+            role: .client,
+            createdAt: Date()
+        )
+        nextUserId += 1
+        accounts.append(MockAccount(user: user, password: password))
+        return user
+    }
+
+    func login(login: String, password: String, role: UserRole) throws -> AppUser {
+        let normalised = login.trimmingCharacters(in: .whitespaces).lowercased()
+        guard let account = accounts.first(where: {
+            $0.user.login == normalised && $0.password == password
+        }) else {
+            throw APIError.server(status: 401, detail: "Неверный логин или пароль")
+        }
+        guard account.user.role == role else {
+            throw APIError.server(
+                status: 403,
+                detail: "Этот аккаунт не подходит для выбранной роли"
+            )
+        }
+        return account.user
+    }
+
+    // MARK: Viewing history
+
+    func recordView(userId: Int, payload: ProductViewPayload) throws -> ProductViewRecord {
+        guard accounts.contains(where: { $0.user.id == userId }) else {
+            throw APIError.server(status: 404, detail: "Пользователь не найден")
+        }
+
+        var history = viewHistory[userId] ?? []
+        // One row per product: repeat visits bump the counter, as on the backend.
+        if let index = history.firstIndex(where: { $0.productId == payload.productId }) {
+            let existing = history[index]
+            let updated = ProductViewRecord(
+                id: existing.id,
+                userId: userId,
+                productId: existing.productId,
+                productName: payload.productName,
+                price: payload.price,
+                viewsCount: existing.viewsCount + 1,
+                lastViewedAt: Date()
+            )
+            history[index] = updated
+            viewHistory[userId] = history
+            return updated
+        }
+
+        let record = ProductViewRecord(
+            id: nextViewId,
+            userId: userId,
+            productId: payload.productId,
+            productName: payload.productName,
+            price: payload.price,
+            viewsCount: 1,
+            lastViewedAt: Date()
+        )
+        nextViewId += 1
+        history.append(record)
+        viewHistory[userId] = history
+        return record
+    }
+
+    func views(forUser userId: Int) -> [ProductViewRecord] {
+        (viewHistory[userId] ?? []).sorted { $0.lastViewedAt > $1.lastViewedAt }
+    }
+
+    func clearViews(forUser userId: Int) {
+        viewHistory[userId] = []
+    }
 
     // MARK: Reads
 

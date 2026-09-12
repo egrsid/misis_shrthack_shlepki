@@ -24,6 +24,10 @@ class Settings:
     # Offline stand-in for the LLM: lets the flow run without a key and keeps the
     # demo alive if the network dies. Off unless explicitly switched on.
     use_fake_llm = os.getenv("USE_FAKE_LLM", "").strip().lower() in {"1", "true", "yes"}
+    # The operator account seeded on an empty database; operators cannot register
+    # themselves. Change these in .env for anything beyond a local demo.
+    operator_login = os.getenv("OPERATOR_LOGIN", "operator").strip().lower()
+    operator_password = os.getenv("OPERATOR_PASSWORD", "12345")
 
 
 settings = Settings()

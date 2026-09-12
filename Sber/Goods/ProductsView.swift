@@ -45,7 +45,14 @@ struct ProductsView: View {
 
                     LazyVGrid(columns: columns, spacing: 15) {
                         ForEach(mockProducts) { product in
-                            ProductCard(product: product)
+                            // Opening a product is what records it in this
+                            // client's viewing history.
+                            NavigationLink {
+                                ProductDetailView(product: product)
+                            } label: {
+                                ProductCard(product: product)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                     .frame(maxWidth: .infinity)

@@ -7,6 +7,7 @@ struct ClientRegisterView: View {
     @State private var errorMessage: String?
     @State private var passwordContentType: UITextContentType? = .newPassword
     @State private var isRegistered = false
+    @State private var isWorking = false
 
     var body: some View {
         AuthBackground {
@@ -30,9 +31,10 @@ struct ClientRegisterView: View {
                 AuthErrorBanner(message: errorMessage)
             }
 
-            AuthPrimaryButton(title: "Зарегистрироваться") {
-                handleRegister()
+            AuthPrimaryButton(title: isWorking ? "Создаём аккаунт…" : "Зарегистрироваться") {
+                Task { await handleRegister() }
             }
+            .disabled(isWorking)
         }
         .onDisappear {
             if errorMessage != nil {
@@ -44,15 +46,24 @@ struct ClientRegisterView: View {
         }
     }
 
-    private func handleRegister() {
-        if let error = MockAuthStore.shared.registerClient(login: login, email: email, password: password) {
-            errorMessage = error.errorDescription
-            passwordContentType = .oneTimeCode
-            return
-        }
+    /// The account is created on the backend: the login and the hashed password
+    /// are stored there, so it still exists after the app is restarted.
+    private func handleRegister() async {
+        isWorking = true
         errorMessage = nil
-        passwordContentType = .newPassword
-        isRegistered = true
+        do {
+            _ = try await AuthStore.shared.register(
+                login: login,
+                email: email,
+                password: password
+            )
+            passwordContentType = .newPassword
+            isRegistered = true
+        } catch {
+            errorMessage = error.localizedDescription
+            passwordContentType = .oneTimeCode
+        }
+        isWorking = false
     }
 }
 

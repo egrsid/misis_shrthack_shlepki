@@ -6,6 +6,7 @@ struct OperatorLoginView: View {
     @State private var errorMessage: String?
     @State private var passwordContentType: UITextContentType? = .password
     @State private var isAuthenticated = false
+    @State private var isWorking = false
 
     var body: some View {
         AuthBackground {
@@ -27,9 +28,10 @@ struct OperatorLoginView: View {
                 AuthErrorBanner(message: errorMessage)
             }
 
-            AuthPrimaryButton(title: "Войти") {
-                handleLogin()
+            AuthPrimaryButton(title: isWorking ? "Входим…" : "Войти") {
+                Task { await handleLogin() }
             }
+            .disabled(isWorking)
         }
         .onDisappear {
             if errorMessage != nil {
@@ -41,15 +43,24 @@ struct OperatorLoginView: View {
         }
     }
 
-    private func handleLogin() {
-        guard MockAuthStore.shared.loginOperator(login: login, password: password) else {
-            errorMessage = "Неверный логин или пароль"
-            passwordContentType = .oneTimeCode
-            return
-        }
+    /// Operator accounts are seeded on the backend and cannot be self-registered;
+    /// the role is sent so a client account is refused here.
+    private func handleLogin() async {
+        isWorking = true
         errorMessage = nil
-        passwordContentType = .password
-        isAuthenticated = true
+        do {
+            _ = try await AuthStore.shared.signIn(
+                login: login,
+                password: password,
+                role: .operatorRole
+            )
+            passwordContentType = .password
+            isAuthenticated = true
+        } catch {
+            errorMessage = error.localizedDescription
+            passwordContentType = .oneTimeCode
+        }
+        isWorking = false
     }
 }
 

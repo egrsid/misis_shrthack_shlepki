@@ -11,9 +11,6 @@ enum API {
     /// on screen whenever this is on.
     static var useMock = false
 
-    /// The client id used by the chat when nobody registered in this session.
-    static let fallbackUserId = 1
-
     static let requestTimeout: TimeInterval = 30
 }
 

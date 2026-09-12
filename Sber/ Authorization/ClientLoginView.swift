@@ -13,6 +13,7 @@ struct ClientLoginView: View {
     @State private var errorMessage: String?
     @State private var passwordContentType: UITextContentType? = .password
     @State private var route: ClientLoginRoute?
+    @State private var isWorking = false
 
     var body: some View {
         AuthBackground {
@@ -34,9 +35,10 @@ struct ClientLoginView: View {
                 AuthErrorBanner(message: errorMessage)
             }
 
-            AuthPrimaryButton(title: "Войти") {
-                handleLogin()
+            AuthPrimaryButton(title: isWorking ? "Входим…" : "Войти") {
+                Task { await handleLogin() }
             }
+            .disabled(isWorking)
 
             Button {
                 goToRegister()
@@ -46,6 +48,7 @@ struct ClientLoginView: View {
                     .foregroundColor(.white)
                     .underline()
             }
+            .disabled(isWorking)
         }
         .onDisappear {
             if errorMessage != nil {
@@ -62,15 +65,24 @@ struct ClientLoginView: View {
         }
     }
 
-    private func handleLogin() {
-        guard MockAuthStore.shared.loginClient(login: login, password: password) else {
-            errorMessage = "Неверный логин или пароль"
-            passwordContentType = .oneTimeCode
-            return
-        }
+    /// Credentials are checked by the backend against the hashed password in its
+    /// database; the role is sent so a client cannot slip into the operator screen.
+    private func handleLogin() async {
+        isWorking = true
         errorMessage = nil
-        passwordContentType = .password
-        route = .home
+        do {
+            _ = try await AuthStore.shared.signIn(
+                login: login,
+                password: password,
+                role: .client
+            )
+            passwordContentType = .password
+            route = .home
+        } catch {
+            errorMessage = error.localizedDescription
+            passwordContentType = .oneTimeCode
+        }
+        isWorking = false
     }
 
     private func goToRegister() {

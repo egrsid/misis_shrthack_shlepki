@@ -1,3 +1,4 @@
+from .auth import LoginRequest, RegisterRequest, Role, UserOut
 from .issue import (
     AnalyzeRequest,
     AnalyzeResponse,
@@ -14,8 +15,15 @@ from .issue import (
     ReplyResponse,
     Status,
 )
+from .view import ProductViewCreate, ProductViewOut
 
 __all__ = [
+    "LoginRequest",
+    "ProductViewCreate",
+    "ProductViewOut",
+    "RegisterRequest",
+    "Role",
+    "UserOut",
     "AnalyzeRequest",
     "AnalyzeResponse",
     "Category",

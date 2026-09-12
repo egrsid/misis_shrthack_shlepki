@@ -54,7 +54,69 @@ struct APIClient {
         return ISO8601DateFormatter().date(from: raw)
     }
 
-    // MARK: Endpoints
+    // MARK: Auth
+
+    func register(login: String, email: String, password: String) async throws -> AppUser {
+        if API.useMock {
+            return try await MockBackend.shared.register(
+                login: login, email: email, password: password
+            )
+        }
+        return try await send(
+            path: "/auth/register",
+            method: "POST",
+            body: RegisterPayload(login: login, email: email, password: password)
+        )
+    }
+
+    func login(login: String, password: String, role: UserRole) async throws -> AppUser {
+        if API.useMock {
+            return try await MockBackend.shared.login(
+                login: login, password: password, role: role
+            )
+        }
+        return try await send(
+            path: "/auth/login",
+            method: "POST",
+            body: LoginPayload(login: login, password: password, role: role)
+        )
+    }
+
+    // MARK: Viewing history
+
+    @discardableResult
+    func recordView(userId: Int, product: Product) async throws -> ProductViewRecord {
+        let payload = ProductViewPayload(
+            productId: product.id,
+            productName: product.name,
+            price: product.price
+        )
+        if API.useMock {
+            return try await MockBackend.shared.recordView(userId: userId, payload: payload)
+        }
+        return try await send(path: "/users/\(userId)/views", method: "POST", body: payload)
+    }
+
+    func views(forUser userId: Int) async throws -> [ProductViewRecord] {
+        if API.useMock {
+            return await MockBackend.shared.views(forUser: userId)
+        }
+        return try await send(
+            path: "/users/\(userId)/views",
+            method: "GET",
+            body: Optional<Never>.none
+        )
+    }
+
+    func clearViews(forUser userId: Int) async throws {
+        if API.useMock {
+            await MockBackend.shared.clearViews(forUser: userId)
+            return
+        }
+        try await sendWithoutResponse(path: "/users/\(userId)/views", method: "DELETE")
+    }
+
+    // MARK: Issues
 
     func analyze(userId: Int, text: String) async throws -> AnalyzeResponse {
         if API.useMock {
@@ -158,15 +220,40 @@ struct APIClient {
         }
     }
 
+    /// For endpoints that answer 204 with no body.
+    private func sendWithoutResponse(path: String, method: String) async throws {
+        guard let url = URL(string: API.base + path) else { throw APIError.badURL }
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch {
+            throw APIError.offline
+        }
+
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(status) else {
+            throw APIError.server(status: status, detail: Self.detail(from: data))
+        }
+    }
+
     /// FastAPI reports problems as {"detail": "..."}; surface that text to the operator.
     private static func detail(from data: Data) -> String? {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return nil
         }
         if let detail = object["detail"] as? String { return detail }
-        // Validation errors arrive as a list of objects.
+        // Validation errors arrive as a list of objects, and Pydantic prefixes a
+        // custom message with "Value error, " — not something to show a user.
         if let items = object["detail"] as? [[String: Any]] {
-            return items.compactMap { $0["msg"] as? String }.joined(separator: ", ")
+            let messages = items.compactMap { item -> String? in
+                guard let message = item["msg"] as? String else { return nil }
+                return message.replacingOccurrences(of: "Value error, ", with: "")
+            }
+            return messages.isEmpty ? nil : messages.joined(separator: ", ")
         }
         return nil
     }

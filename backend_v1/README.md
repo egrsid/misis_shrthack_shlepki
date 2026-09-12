@@ -8,13 +8,18 @@ Minimal FastAPI backend for an electronics-store support app. Swift sends one cu
 app/
 ├── api/
 │   ├── deps.py              # FastAPI dependencies (database session)
-│   └── routes/issues.py     # All support-issue endpoints
+│   └── routes/
+│       ├── auth.py          # Registration and login
+│       ├── issues.py        # All support-issue endpoints
+│       └── views.py         # Per-client product viewing history
 ├── core/
 │   ├── config.py            # .env settings
 │   ├── database.py          # SQLite engine and SQLAlchemy base
+│   ├── security.py          # PBKDF2 password hashing
+│   ├── seed.py              # Seeds the default operator account
 │   └── triage.py            # Deterministic rules: required fields, status, clarification
-├── models/issue.py          # SQLite table definition
-├── schemas/issue.py         # Request/response and strict LLM JSON schemas
+├── models/                  # SQLite tables: issues, users, product_views
+├── schemas/                 # Request/response and strict LLM JSON schemas
 ├── services/
 │   ├── llm.py               # Yandex AI Studio calls only
 │   └── fake_llm.py          # Offline stand-in, enabled with USE_FAKE_LLM=1
@@ -31,6 +36,11 @@ app/
 - `PATCH /issues/{issue_id}` — update title, description, category, priority, status, or `slots`. Writing a slot re-runs triage, so `missing` and the status are recomputed.
 - `POST /issues/{issue_id}/generate-reply` — create and save a Russian reply draft.
 - `POST /issues/{issue_id}/reply` — save the operator's final manual or edited reply.
+- `POST /auth/register` — create a client account; the password is stored hashed.
+- `POST /auth/login` — check credentials, optionally pinned to a role.
+- `POST /users/{user_id}/views` — record that a client opened a product.
+- `GET /users/{user_id}/views` — that client's own viewing history.
+- `DELETE /users/{user_id}/views` — clear it.
 - `GET /health` — simple availability check.
 
 ## Run locally
@@ -138,6 +148,13 @@ curl -X POST http://127.0.0.1:8000/issues/1/reply \
 - The default model is Alice AI LLM: `gpt://<folder_id>/aliceai-llm`.
 - Change `YANDEX_MODEL` in `.env` if you want another Yandex AI Studio model that supports Structured Outputs.
 - `allow_origins=["*"]` is deliberate for local hackathon development; lock it down before deploying.
+- Passwords are hashed with PBKDF2-SHA256 (200k iterations, per-user salt) from the
+  standard library — no extra dependency, and no plain text in the database.
+- There are no sessions or tokens: after login the app keeps the returned user id,
+  and the issue endpoints are not access-controlled. A deliberate hackathon
+  limitation — the point of the case is triage, not authorisation.
+- The operator account is seeded from `OPERATOR_LOGIN` / `OPERATOR_PASSWORD`;
+  `/auth/register` only ever creates clients.
 - `USE_FAKE_LLM=1` swaps the model for a keyword-based stand-in, so the whole flow
   runs with no API key and survives a dead network during a demo. The triage rules
   are unchanged in that mode — only the text understanding is faked.

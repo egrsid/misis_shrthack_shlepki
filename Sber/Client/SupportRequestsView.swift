@@ -14,7 +14,7 @@ struct SupportRequestsView: View {
     @State private var errorMessage: String?
     @State private var openChat = false
 
-    private var userId: Int { MockAuthStore.shared.currentClientId }
+    private var userId: Int { AuthStore.shared.currentUserId }
 
     /// Newest first, and anything still waiting on the client goes to the top —
     /// that is the only thing here they can act on.

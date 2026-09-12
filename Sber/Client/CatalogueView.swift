@@ -2,14 +2,16 @@ import SwiftUI
 
 /// The store catalogue, opened from the labelled button on the client's main screen.
 ///
-/// Every section here is a stub: the case is about triaging support requests, not
-/// about building a shop. Support requests live in the chat, not in the catalogue —
-/// that is where the client is already talking to us.
+/// Search, categories and orders are stubs: the case is about triaging support
+/// requests, not about building a shop. The viewing history is real — it is stored
+/// per account on the backend. Support requests live in the chat instead, where the
+/// client is already talking to us.
 struct CatalogueView: View {
     private enum Section: String, Identifiable, Hashable {
         case search
         case categories
         case orders
+        case history
 
         var id: String { rawValue }
 
@@ -18,6 +20,7 @@ struct CatalogueView: View {
             case .search: return "Поиск по товарам"
             case .categories: return "Категории"
             case .orders: return "Мои заказы"
+            case .history: return "История просмотров"
             }
         }
 
@@ -26,6 +29,7 @@ struct CatalogueView: View {
             case .search: return "Найти товар по названию или модели"
             case .categories: return "Смартфоны, ноутбуки, аксессуары"
             case .orders: return "Оформленные и доставленные заказы"
+            case .history: return "Товары, которые вы открывали"
             }
         }
 
@@ -34,6 +38,7 @@ struct CatalogueView: View {
             case .search: return "magnifyingglass"
             case .categories: return "square.grid.2x2"
             case .orders: return "shippingbox"
+            case .history: return "clock.arrow.circlepath"
             }
         }
     }
@@ -41,7 +46,7 @@ struct CatalogueView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selected: Section?
 
-    private let sections: [Section] = [.search, .categories, .orders]
+    private let sections: [Section] = [.search, .categories, .orders, .history]
 
     var body: some View {
         ZStack {
@@ -67,7 +72,12 @@ struct CatalogueView: View {
         }
         .navigationBarBackButtonHidden(true)
         .navigationDestination(item: $selected) { section in
-            StubSectionView(title: section.title, iconName: section.iconName)
+            switch section {
+            case .history:
+                ViewHistoryView()
+            default:
+                StubSectionView(title: section.title, iconName: section.iconName)
+            }
         }
     }
 
