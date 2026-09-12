@@ -1,6 +1,8 @@
 import Foundation
 
 struct ClientAccount {
+    /// Sent to the backend as `user_id`, so a client only sees their own issues.
+    let id: Int
     let login: String
     let email: String
     let password: String
@@ -29,6 +31,10 @@ final class MockAuthStore {
     static let shared = MockAuthStore()
 
     private var clients: [ClientAccount] = []
+    private var nextClientId = 1
+
+    /// Id of the client using the app right now; the chat sends it to /analyze.
+    private(set) var currentClientId = API.fallbackUserId
 
     private let operators: [OperatorAccount] = [
         OperatorAccount(login: "operator", password: "12345")
@@ -45,12 +51,18 @@ final class MockAuthStore {
         }
         guard !alreadyExists else { return .alreadyExists }
 
-        clients.append(ClientAccount(login: login, email: email, password: password))
+        clients.append(
+            ClientAccount(id: nextClientId, login: login, email: email, password: password)
+        )
+        nextClientId += 1
         return nil
     }
 
     func loginClient(login: String, password: String) -> Bool {
-        clients.contains { $0.login == login && $0.password == password }
+        guard let account = clients.first(where: { $0.login == login && $0.password == password })
+        else { return false }
+        currentClientId = account.id
+        return true
     }
 
     func loginOperator(login: String, password: String) -> Bool {

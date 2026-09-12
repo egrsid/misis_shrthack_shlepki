@@ -37,7 +37,7 @@ struct OperatorLoginView: View {
             }
         }
         .navigationDestination(isPresented: $isAuthenticated) {
-            HomePlaceholderView(title: "Добро пожаловать, оператор!")
+            OperatorIssuesView()
         }
     }
 

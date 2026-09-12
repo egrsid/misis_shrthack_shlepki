@@ -1,6 +1,6 @@
 # Tech Support Hackathon API
 
-Minimal FastAPI backend for an electronics-store support app. Swift sends one customer message; the LLM splits it into individual issues, which are stored in SQLite and returned as JSON.
+Minimal FastAPI backend for an electronics-store support app. Swift sends one customer message; the LLM splits it into individual issues and extracts entities, then the rules in `core/triage.py` decide which required fields are missing, what status each issue gets and what the customer is asked. Everything is stored in SQLite and returned as JSON.
 
 ## Project structure
 
@@ -11,19 +11,23 @@ app/
 │   └── routes/issues.py     # All support-issue endpoints
 ├── core/
 │   ├── config.py            # .env settings
-│   └── database.py          # SQLite engine and SQLAlchemy base
+│   ├── database.py          # SQLite engine and SQLAlchemy base
+│   └── triage.py            # Deterministic rules: required fields, status, clarification
 ├── models/issue.py          # SQLite table definition
 ├── schemas/issue.py         # Request/response and strict LLM JSON schemas
-├── services/llm.py          # OpenAI calls only
+├── services/
+│   ├── llm.py               # Yandex AI Studio calls only
+│   └── fake_llm.py          # Offline stand-in, enabled with USE_FAKE_LLM=1
 └── main.py                  # App setup and route registration
 ```
 
 ## What is included
 
-- `POST /analyze` — split a message with an LLM and save its issues.
-- `GET /issues` — all issues.
+- `POST /analyze` — split a message, triage every issue, save them, and return one clarification covering all the gaps.
+- `GET /issues` — all issues (the operator's feed).
 - `GET /users/{user_id}/issues` — a user's issues.
-- `PATCH /issues/{issue_id}` — update title, description, category, priority, or status.
+- `GET /issues/{issue_id}` — a single issue.
+- `PATCH /issues/{issue_id}` — update title, description, category, priority, status, or `slots`. Writing a slot re-runs triage, so `missing` and the status are recomputed.
 - `POST /issues/{issue_id}/generate-reply` — create and save a Russian reply draft.
 - `POST /issues/{issue_id}/reply` — save the operator's final manual or edited reply.
 - `GET /health` — simple availability check.
@@ -59,25 +63,39 @@ Content-Type: application/json
 }
 ```
 
-Example response (each object is already stored in `support.db`):
+Example response (every issue is already stored in `support.db`):
 
 ```json
-[
-  {
-    "id": 1,
-    "user_id": 1,
-    "original_text": "Ноутбук сильно греется, зарядка иногда не работает и хочу узнать про возврат",
-    "title": "Перегрев ноутбука",
-    "description": "Пользователь сообщает о сильном нагреве ноутбука.",
-    "category": "technical",
-    "priority": "high",
-    "status": "new",
-    "generated_reply": null,
-    "created_at": "2026-09-12T10:00:00",
-    "updated_at": "2026-09-12T10:00:00"
-  }
-]
+{
+  "request_id": "0f1c8f8e-5e1a-4c6d-9b0e-2b5f2f1a77c2",
+  "issues": [
+    {
+      "id": 1,
+      "user_id": 1,
+      "original_text": "Ноутбук сильно греется, зарядка иногда не работает и хочу узнать про возврат",
+      "title": "Перегрев ноутбука",
+      "description": "Пользователь сообщает о сильном нагреве ноутбука.",
+      "category": "technical",
+      "priority": "high",
+      "status": "new",
+      "slots": { "model": "ноутбук", "issue": "перегрев" },
+      "missing": [],
+      "generated_reply": null,
+      "final_reply": null,
+      "request_id": "0f1c8f8e-5e1a-4c6d-9b0e-2b5f2f1a77c2",
+      "group_index": 1,
+      "group_total": 2,
+      "created_at": "2026-09-12T10:00:00",
+      "updated_at": "2026-09-12T10:00:00"
+    }
+  ],
+  "clarification": "Для оформления возврата укажите, пожалуйста: номер заказа и причину возврата."
+}
 ```
+
+`slots` holds what the customer actually stated — a field is `null` when it was not
+in the message, never a guess. `missing` is computed from the `REQUIRED` table in
+`core/triage.py`, and an issue with anything missing gets status `awaiting_info`.
 
 ## Other requests
 
@@ -92,6 +110,11 @@ curl http://127.0.0.1:8000/users/1/issues
 curl -X PATCH http://127.0.0.1:8000/issues/1 \
   -H "Content-Type: application/json" \
   -d '{"status":"in_progress"}'
+
+# Fill in a missing field; missing and status are recomputed
+curl -X PATCH http://127.0.0.1:8000/issues/1 \
+  -H "Content-Type: application/json" \
+  -d '{"slots":{"serial_number":"SN-4481-XZ"}}'
 
 # Generate a customer reply draft
 curl -X POST http://127.0.0.1:8000/issues/1/generate-reply
@@ -109,3 +132,8 @@ curl -X POST http://127.0.0.1:8000/issues/1/reply \
 - The default model is Alice AI LLM: `gpt://<folder_id>/aliceai-llm`.
 - Change `YANDEX_MODEL` in `.env` if you want another Yandex AI Studio model that supports Structured Outputs.
 - `allow_origins=["*"]` is deliberate for local hackathon development; lock it down before deploying.
+- `USE_FAKE_LLM=1` swaps the model for a keyword-based stand-in, so the whole flow
+  runs with no API key and survives a dead network during a demo. The triage rules
+  are unchanged in that mode — only the text understanding is faked.
+- Statuses are `new`, `awaiting_info`, `in_progress`, `resolved`, `closed`. Sending a
+  final reply moves an issue to `resolved`.

@@ -1,18 +1,26 @@
 import Foundation
 
-struct SupportRequest {
+/// What the client sent and what the triage made of it.
+struct SupportRequest: Identifiable {
+    let id = UUID()
     let message: String
     let date: Date
+    let issues: [Issue]
 }
 
-final class SupportRequestStore {
+/// Client-side history of submitted requests.
+///
+/// The issues themselves live in the backend database; this only keeps the
+/// client's own view of what they sent in this session.
+@MainActor
+final class SupportRequestStore: ObservableObject {
     static let shared = SupportRequestStore()
 
-    private(set) var requests: [SupportRequest] = []
+    @Published private(set) var requests: [SupportRequest] = []
 
     private init() {}
 
-    func addRequest(message: String) {
-        requests.append(SupportRequest(message: message, date: Date()))
+    func record(message: String, issues: [Issue]) {
+        requests.insert(SupportRequest(message: message, date: Date(), issues: issues), at: 0)
     }
 }

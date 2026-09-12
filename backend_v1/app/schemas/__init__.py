@@ -1,19 +1,31 @@
 from .issue import (
     AnalyzeRequest,
+    AnalyzeResponse,
+    Category,
+    ExtractedIssue,
     GenerateReplyResponse,
     IssueAnalysis,
     IssueOut,
+    IssueSlots,
     IssueUpdate,
+    Priority,
     ReplyCreate,
     ReplyResponse,
+    Status,
 )
 
 __all__ = [
     "AnalyzeRequest",
+    "AnalyzeResponse",
+    "Category",
+    "ExtractedIssue",
     "GenerateReplyResponse",
     "IssueAnalysis",
     "IssueOut",
+    "IssueSlots",
     "IssueUpdate",
+    "Priority",
     "ReplyCreate",
     "ReplyResponse",
+    "Status",
 ]

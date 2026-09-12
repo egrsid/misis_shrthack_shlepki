@@ -21,6 +21,9 @@ class Settings:
     yandex_base_url = os.getenv(
         "YANDEX_BASE_URL", "https://ai.api.cloud.yandex.net/v1"
     )
+    # Offline stand-in for the LLM: lets the flow run without a key and keeps the
+    # demo alive if the network dies. Off unless explicitly switched on.
+    use_fake_llm = os.getenv("USE_FAKE_LLM", "").strip().lower() in {"1", "true", "yes"}
 
 
 settings = Settings()

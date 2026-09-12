@@ -14,16 +14,33 @@ class Base(DeclarativeBase):
     pass
 
 
+# Columns added after the first demo database was created. SQLite can append
+# nullable columns in place, which keeps existing issues usable.
+_ADDED_COLUMNS = {
+    "final_reply": "TEXT",
+    "slots": "TEXT",
+    "missing": "TEXT",
+    "request_id": "VARCHAR(36)",
+}
+
+
 def init_db() -> None:
     """Create tables and apply tiny additive SQLite changes for the hackathon MVP."""
     Base.metadata.create_all(bind=engine)
 
     # create_all does not add new columns to an existing SQLite table.
-    # This keeps existing demo issues when final_reply is introduced.
     if engine.dialect.name != "sqlite" or "issues" not in inspect(engine).get_table_names():
         return
 
     columns = {column["name"] for column in inspect(engine).get_columns("issues")}
-    if "final_reply" not in columns:
-        with engine.begin() as connection:
-            connection.execute(text("ALTER TABLE issues ADD COLUMN final_reply TEXT"))
+    pending = {
+        name: sql_type
+        for name, sql_type in _ADDED_COLUMNS.items()
+        if name not in columns
+    }
+    if not pending:
+        return
+
+    with engine.begin() as connection:
+        for name, sql_type in pending.items():
+            connection.execute(text(f"ALTER TABLE issues ADD COLUMN {name} {sql_type}"))
