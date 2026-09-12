@@ -1,10 +1,10 @@
 import SwiftUI
 
-private enum ClientLoginRoute: Identifiable, Hashable {
+private enum ClientLoginRoute: String, Identifiable, Hashable {
     case register
     case home
 
-    var id: Self { self }
+    var id: String { rawValue }
 }
 
 struct ClientLoginView: View {

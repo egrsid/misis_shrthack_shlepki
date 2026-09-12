@@ -2,8 +2,17 @@ import SwiftUI
 
 private let productCardHeight: CGFloat = 200
 
+private enum ProductsRoute: String, Identifiable, Hashable {
+    case support
+    case orders
+    case supportRequests
+
+    var id: String { rawValue }
+}
+
 struct ProductsView: View {
-    @State private var isSupportPresented = false
+    @State private var isMenuOpen = false
+    @State private var route: ProductsRoute?
 
     private let columns = [
         GridItem(.flexible(), spacing: 28),
@@ -16,10 +25,7 @@ struct ProductsView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    Text("Товары")
-                        .font(.system(size: 28, weight: .bold))
-                        .foregroundColor(.white)
-                        .padding(.top, 16)
+                    header
 
                     LazyVGrid(columns: columns, spacing: 15) {
                         ForEach(mockProducts) { product in
@@ -33,7 +39,7 @@ struct ProductsView: View {
             }
 
             Button {
-                isSupportPresented = true
+                route = .support
             } label: {
                 Image(systemName: "questionmark.bubble.fill")
                     .font(.system(size: 22, weight: .semibold))
@@ -45,10 +51,59 @@ struct ProductsView: View {
             }
             .padding(.trailing, 20)
             .padding(.bottom, 24)
+
+            if isMenuOpen {
+                SideMenuView(isPresented: $isMenuOpen) { section in
+                    handleSectionSelected(section)
+                }
+                .transition(.move(edge: .trailing))
+            }
         }
         .navigationBarBackButtonHidden(true)
-        .navigationDestination(isPresented: $isSupportPresented) {
-            SupportChatView()
+        .navigationDestination(item: $route) { route in
+            switch route {
+            case .support:
+                SupportChatView()
+            case .orders:
+                MyOrdersView()
+            case .supportRequests:
+                SupportRequestsListView()
+            }
+        }
+    }
+
+    private var header: some View {
+        HStack {
+            Text("Товары")
+                .font(.system(size: 28, weight: .bold))
+                .foregroundColor(.white)
+
+            Spacer()
+
+            Button {
+                withAnimation {
+                    isMenuOpen = true
+                }
+            } label: {
+                Image(systemName: "square.grid.2x2.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(width: 40, height: 40)
+                    .background(Color.white.opacity(0.15))
+                    .clipShape(Circle())
+            }
+        }
+        .padding(.top, 16)
+    }
+
+    private func handleSectionSelected(_ section: CatalogSection) {
+        switch section {
+        case .products:
+            break
+        case .orders:
+            route = .orders
+        case .supportRequests:
+            route = .supportRequests
         }
     }
 }
