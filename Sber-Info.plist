@@ -13,5 +13,11 @@
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
+	<!-- Dictation in the support chat. Without both of these iOS kills the app the
+	     moment the microphone button is tapped. -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Микрофон нужен, чтобы описать проблему голосом вместо набора текста.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Распознавание речи превращает ваше голосовое обращение в текст, который вы сможете проверить перед отправкой.</string>
 </dict>
 </plist>

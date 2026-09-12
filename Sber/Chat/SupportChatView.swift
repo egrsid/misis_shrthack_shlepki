@@ -27,6 +27,11 @@ struct SupportChatView: View {
     @State private var fruitlessAnswers = 0
     @State private var showHistory = false
 
+    @StateObject private var dictation = SpeechDictation()
+    /// What the client had typed before dictation started, so speech is appended
+    /// instead of wiping their text.
+    @State private var dictationPrefix = ""
+
     private var userId: Int { AuthStore.shared.currentUserId }
 
     var body: some View {
@@ -74,6 +79,12 @@ struct SupportChatView: View {
             }
         }
         .navigationBarBackButtonHidden(true)
+        // Recognised speech goes into the editable field, never straight to the
+        // backend: the client checks it first.
+        .onChange(of: dictation.transcript) {
+            draft = dictationPrefix + dictation.transcript
+        }
+        .onDisappear { dictation.stop() }
         .navigationDestination(isPresented: $showHistory) {
             SupportRequestsView(openedFromChat: true)
         }
@@ -129,30 +140,73 @@ struct SupportChatView: View {
     }
 
     private var inputBar: some View {
-        HStack(spacing: 12) {
-            TextField(inputPlaceholder, text: $draft, axis: .vertical)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .background(Color.white)
-                .cornerRadius(20)
-                .disabled(isSending)
-
-            Button {
-                send()
-            } label: {
-                Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 32))
-                    .foregroundColor(.white)
-                    .opacity(canSend ? 1 : 0.5)
+        VStack(spacing: 8) {
+            if let message = dictation.errorMessage {
+                hintLine(message, isError: true)
+            } else if dictation.isRecording {
+                hintLine("Говорите… текст появится в поле, его можно поправить перед отправкой", isError: false)
             }
-            .disabled(!canSend)
+
+            HStack(spacing: 10) {
+                if dictation.isSupported { micButton }
+
+                TextField(inputPlaceholder, text: $draft, axis: .vertical)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .background(Color.white)
+                    .cornerRadius(20)
+                    // Read-only while dictating, otherwise typing and recognition
+                    // would fight over the same string.
+                    .disabled(isSending || dictation.isRecording)
+
+                Button {
+                    send()
+                } label: {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 32))
+                        .foregroundColor(.white)
+                        .opacity(canSend ? 1 : 0.5)
+                }
+                .disabled(!canSend)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
     }
 
+    private var micButton: some View {
+        Button {
+            Task { await toggleDictation() }
+        } label: {
+            Image(systemName: dictation.isRecording ? "stop.fill" : "mic.fill")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(dictation.isRecording ? .white : .pantone349)
+                .frame(width: 42, height: 42)
+                .background(dictation.isRecording ? Color.missingRed : Color.white)
+                .clipShape(Circle())
+        }
+        .disabled(isSending)
+    }
+
+    private func hintLine(_ text: String, isError: Bool) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: isError ? "exclamationmark.circle" : "waveform")
+                .font(.system(size: 11, weight: .semibold))
+            Text(text)
+                .font(.system(size: 12, weight: .medium))
+                .multilineTextAlignment(.leading)
+        }
+        .foregroundColor(.white)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(isError ? Color.red.opacity(0.8) : Color.white.opacity(0.2))
+        .cornerRadius(10)
+    }
+
     private var inputPlaceholder: String {
-        pendingIssues.isEmpty ? "Опишите проблему" : "Ответьте на вопрос выше"
+        if dictation.isRecording { return "Слушаю…" }
+        return pendingIssues.isEmpty ? "Опишите проблему" : "Ответьте на вопрос выше"
     }
 
     private var sendAnywayButton: some View {
@@ -181,7 +235,19 @@ struct SupportChatView: View {
 
     // MARK: Actions
 
+    /// Starts or stops dictation, appending speech to whatever is already typed.
+    private func toggleDictation() async {
+        if dictation.isRecording {
+            dictation.stop()
+            return
+        }
+        let typed = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        dictationPrefix = typed.isEmpty ? "" : typed + " "
+        await dictation.start()
+    }
+
     private func send() {
+        dictation.stop()
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
 
